@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E-LEAGUE</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;1,400&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#08090f;--surface:#0f1220;--card:#141827;--card2:#1a2035;
+  --border:#1f2640;--border2:#2a3358;
+  --gold:#f5c518;--gold2:#c9a000;--goldglow:rgba(245,197,24,0.18);
+  --silver:#9eaec4;--bronze:#b07540;
+  --green:#00d97e;--red:#ff3b5c;--blue:#3d7fff;--purple:#9b6dff;
+  --text:#dde3f0;--muted:#5a6a8a;--muted2:#8898b8;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;min-height:100vh;
+  background-image:radial-gradient(ellipse 80% 40% at 10% 0%,rgba(61,127,255,.07) 0%,transparent 70%),
+  radial-gradient(ellipse 60% 50% at 90% 100%,rgba(245,197,24,.05) 0%,transparent 70%);}
+
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+
+header{text-align:center;padding:52px 20px 36px;position:relative;}
+.badge{display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold2));
+  color:#000;font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:3px;
+  padding:4px 16px;border-radius:2px;margin-bottom:16px;}
+header h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(48px,9vw,90px);
+  letter-spacing:8px;line-height:.95;
+  background:linear-gradient(170deg,#fff 0%,var(--gold) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.sub-tag{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:600;
+  letter-spacing:5px;color:var(--muted);text-transform:uppercase;margin-top:10px;display:block;}
+.hline{width:60px;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);
+  margin:18px auto 0;}
+
+.page-nav{display:flex;justify-content:center;gap:4px;padding:24px 20px 0;flex-wrap:wrap;}
+.nav-btn{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;
+  letter-spacing:2px;padding:9px 24px;border:1px solid var(--border);
+  background:transparent;color:var(--muted);cursor:pointer;border-radius:3px;
+  transition:all .2s;text-transform:uppercase;}
+.nav-btn.active,.nav-btn:hover{border-color:var(--gold);color:var(--gold);
+  background:rgba(245,197,24,.06);}
+.admin-nav{margin-left:auto;}
+
+.container{max-width:1080px;margin:0 auto;padding:28px 16px 80px;}
+
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px;}
+.sec-head h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--gold);}
+.sec-head span{font-family:'Barlow Condensed',sans-serif;font-size:12px;
+  letter-spacing:2px;color:var(--muted);text-transform:uppercase;}
+
+.rules-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;}
+.pill{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;
+  letter-spacing:1px;color:var(--muted2);background:var(--surface);
+  border:1px solid var(--border);border-radius:20px;padding:4px 14px;white-space:nowrap;}
+.pill b{color:var(--gold);}
+
+.tbl-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;min-width:600px;}
+thead tr{border-bottom:2px solid var(--gold);}
+thead th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:2px;color:var(--muted);text-transform:uppercase;padding:11px 8px;text-align:center;}
+thead th.tl{text-align:left;}
+tbody tr{border-bottom:1px solid rgba(255,255,255,.035);transition:background .15s;}
+tbody tr:hover{background:rgba(245,197,24,.03);}
+tbody tr.zero{opacity:.5;}
+td{padding:12px 8px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:600;}
+td.tl{text-align:left;}
+.rk{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--muted);width:36px;}
+.rk.r1{color:var(--gold);}
+.rk.r2{color:var(--silver);}
+.rk.r3{color:var(--bronze);}
+.ava{display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;border-radius:50%;background:var(--border2);
+  font-size:10px;font-weight:700;margin-right:9px;vertical-align:middle;
+  color:var(--gold);border:1px solid rgba(245,197,24,.2);flex-shrink:0;
+  font-family:'Barlow Condensed',sans-serif;}
+.tname{font-size:15px;font-weight:700;color:var(--text);vertical-align:middle;}
+.gp{color:var(--green);}.gn{color:var(--red);}.gz{color:var(--muted);}
+.pts{font-family:'Bebas Neue',sans-serif;font-size:22px;}
+.pts.hi{color:var(--gold);}
+.zone-g{border-left:3px solid var(--gold);}
+.zone-b{border-left:3px solid var(--blue);}
+.zone-r{border-left:3px solid var(--red);}
+.div-row td{padding:3px 8px 3px 44px;font-family:'Barlow Condensed',sans-serif;
+  font-size:10px;letter-spacing:3px;color:var(--muted);background:transparent;
+  border-bottom:1px dashed var(--border);}
+
+.results-grid{display:flex;flex-direction:column;gap:8px;}
+.result-card{background:var(--surface);border:1px solid var(--border);
+  border-radius:6px;padding:14px 18px;display:grid;
+  grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;
+  transition:border .2s;}
+.result-card:hover{border-color:var(--border2);}
+.rc-team{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--text);}
+.rc-team.home{text-align:right;}
+.rc-score{font-family:'Bebas Neue',sans-serif;font-size:26px;
+  background:var(--card2);border:1px solid var(--border2);
+  border-radius:4px;padding:4px 18px;letter-spacing:4px;text-align:center;color:var(--gold);}
+.rc-meta{font-family:'Barlow Condensed',sans-serif;font-size:11px;
+  letter-spacing:2px;color:var(--muted);text-align:center;margin-top:4px;}
+.rc-wrap{display:flex;flex-direction:column;align-items:center;}
+.empty-state{text-align:center;padding:48px 20px;color:var(--muted);
+  font-family:'Barlow Condensed',sans-serif;font-size:14px;letter-spacing:2px;}
+
+.page{display:none;}.page.active{display:block;}
+
+#adm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);
+  z-index:200;backdrop-filter:blur(6px);overflow-y:auto;padding:24px 12px 40px;}
+#adm-overlay.open{display:block;}
+.adm-box{max-width:900px;margin:0 auto;background:var(--card);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.adm-top{background:var(--surface);padding:18px 26px;
+  display:flex;justify-content:space-between;align-items:center;
+  border-bottom:2px solid var(--gold);}
+.adm-top h2{font-family:'Bebas Neue',sans-serif;font-size:24px;
+  letter-spacing:4px;color:var(--gold);}
+.adm-close{background:transparent;border:1px solid var(--border);
+  color:var(--muted);width:30px;height:30px;border-radius:50%;
+  font-size:14px;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;transition:all .2s;}
+.adm-close:hover{border-color:var(--red);color:var(--red);}
+
+.adm-tabs{display:flex;border-bottom:1px solid var(--border);}
+.adm-tab{flex:1;padding:13px;font-family:'Barlow Condensed',sans-serif;
+  font-size:13px;font-weight:700;letter-spacing:2px;text-align:center;
+  background:transparent;border:none;color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .2s;
+  text-transform:uppercase;}
+.adm-tab.active,.adm-tab:hover{color:var(--gold);border-bottom-color:var(--gold);}
+
+.adm-body{padding:22px 24px;}
+
+/* Auth gate replaces pass-gate */
+#auth-gate{text-align:center;padding:52px 20px;}
+#auth-gate h3{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:3px;
+  color:var(--gold);margin-bottom:6px;}
+#auth-gate p{color:var(--muted);font-size:13px;letter-spacing:1px;
+  font-family:'Barlow Condensed',sans-serif;margin-bottom:22px;}
+#auth-email,#auth-password{background:var(--surface);border:1px solid var(--border);color:var(--text);
+  font-family:'Barlow',sans-serif;font-size:18px;padding:11px 20px;
+  border-radius:4px;outline:none;width:220px;text-align:center;letter-spacing:1px;
+  display:block;margin:0 auto 14px;}
+#auth-email:focus,#auth-password:focus{border-color:var(--gold);}
+#auth-err{color:var(--red);font-size:12px;letter-spacing:2px;
+  font-family:'Barlow Condensed',sans-serif;display:none;margin-top:8px;}
+
+.f-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;}
+.f-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:90px;}
+.f-group.wide{flex:2;min-width:140px;}
+.f-group.fixed{flex:0 0 auto;}
+label.fl{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:2px;color:var(--muted);text-transform:uppercase;}
+input.fi,select.fi{background:var(--surface);border:1px solid var(--border);
+  color:var(--text);font-family:'Barlow',sans-serif;font-size:14px;
+  padding:9px 12px;border-radius:4px;outline:none;width:100%;transition:border .2s;}
+input.fi:focus,select.fi:focus{border-color:var(--gold);}
+select.fi option{background:var(--card);}
+input.fi[type=number]{text-align:center;}
+
+.btn{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;
+  letter-spacing:1.5px;padding:10px 22px;border:none;border-radius:4px;
+  cursor:pointer;transition:all .2s;text-transform:uppercase;white-space:nowrap;}
+.btn-gold{background:var(--gold);color:#000;}
+.btn-gold:hover{background:var(--gold2);}
+.btn-blue{background:var(--blue);color:#fff;}
+.btn-blue:hover{background:#2960d0;}
+.btn-red{background:transparent;border:1px solid var(--red);color:var(--red);}
+.btn-red:hover{background:var(--red);color:#fff;}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted2);}
+.btn-ghost:hover{border-color:var(--gold);color:var(--gold);}
+.btn-sm{padding:6px 14px;font-size:11px;}
+
+.slbl{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:3px;color:var(--muted);text-transform:uppercase;
+  margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.slbl:first-child{margin-top:0;}
+
+.match-log{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:280px;overflow-y:auto;}
+.ml-row{display:grid;grid-template-columns:1fr 36px 24px 36px 1fr auto;
+  align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;padding:10px 12px;font-family:'Barlow Condensed',sans-serif;}
+.ml-teams{font-size:14px;font-weight:700;color:var(--text);}
+.ml-score{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold);text-align:center;}
+.ml-sep{font-size:14px;color:var(--muted);text-align:center;}
+.ml-md{font-size:11px;color:var(--muted);letter-spacing:1px;}
+
+.ov-list{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;margin-bottom:12px;}
+.ov-row{display:grid;grid-template-columns:160px repeat(6,52px) auto;
+  gap:6px;align-items:center;background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;padding:8px 10px;}
+.ov-row input{background:transparent;border:none;border-bottom:1px solid var(--border);
+  color:var(--text);font-family:'Barlow',sans-serif;font-size:13px;
+  padding:3px 4px;text-align:center;outline:none;transition:border .2s;width:100%;}
+.ov-row input:focus{border-bottom-color:var(--gold);}
+.ov-row input.nm{text-align:left;}
+.ov-hdr{display:grid;grid-template-columns:160px repeat(6,52px) auto;
+  gap:6px;padding:0 10px 4px;font-family:'Barlow Condensed',sans-serif;
+  font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;}
+
+.adm-footer{display:flex;gap:10px;flex-wrap:wrap;padding:16px 24px;
+  border-top:1px solid var(--border);background:var(--surface);}
+
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(16px);
+  background:var(--gold);color:#000;font-family:'Barlow Condensed',sans-serif;
+  font-size:13px;font-weight:700;letter-spacing:2px;padding:10px 28px;
+  border-radius:4px;opacity:0;pointer-events:none;transition:all .3s;z-index:999;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+footer{text-align:center;padding:20px;color:var(--muted);
+  font-size:11px;font-family:'Barlow Condensed',sans-serif;letter-spacing:3px;
+  border-top:1px solid var(--border);}
+
+@media(max-width:600px){
+  .ov-row{grid-template-columns:120px repeat(6,44px) auto;}
+  .ov-hdr{grid-template-columns:120px repeat(6,44px) auto;}
+  .ml-row{grid-template-columns:1fr 32px 20px 32px 1fr auto;gap:5px;}
+}
+</style>
+<!-- Firebase SDKs (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="badge">⚡ OFFICIAL STANDINGS</div>
+  <h1 id="hd-title">E-LEAGUE</h1>
+  <span class="sub-tag" id="hd-matchday">Matchday 1</span>
+  <div class="hline"></div>
+</header>
+
+<!-- NAV -->
+<nav class="page-nav">
+  <button class="nav-btn active" onclick="showPage('standings',this)">📊 Standings</button>
+  <button class="nav-btn" onclick="showPage('results',this)">⚽ Results</button>
+  <button class="nav-btn admin-nav" onclick="openAdmin()">⚙ Admin</button>
+</nav>
+
+<!-- MAIN -->
+<div class="container">
+
+  <div class="page active" id="pg-standings">
+    <div class="sec-head">
+      <h2>LEAGUE TABLE</h2>
+      <span id="lbl-matchday">Matchday 1</span>
+    </div>
+    <div class="rules-bar">
+      <div class="pill"><b>①</b> Points</div>
+      <div class="pill"><b>②</b> Goal Difference</div>
+      <div class="pill"><b>③</b> Goals Scored</div>
+      <div class="pill"><b>④</b> Head-to-Head</div>
+      <div class="pill"><b>✦</b> Active players rank above 0-match players</div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="tl">#</th>
+            <th class="tl">Team</th>
+            <th>P</th><th>W</th><th>D</th><th>L</th>
+            <th>GF</th><th>GA</th><th>GD</th><th>Pts</th>
+          </tr>
+        </thead>
+        <tbody id="standings-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="page" id="pg-results">
+    <div class="sec-head"><h2>MATCH RESULTS</h2></div>
+    <div class="results-grid" id="results-grid">
+      <div class="empty-state">NO MATCHES PLAYED YET</div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- ADMIN OVERLAY -->
+<div id="adm-overlay">
+  <div class="adm-box">
+    <div class="adm-top">
+      <h2>⚙ ADMIN PANEL</h2>
+      <button class="adm-close" onclick="closeAdmin()">✕</button>
+    </div>
+
+    <!-- AUTH GATE -->
+    <div id="auth-gate">
+      <h3>🔐 ADMIN LOGIN</h3>
+      <p>Sign in with your admin email and password</p>
+      <input type="email" id="auth-email" placeholder="Email" autocomplete="email">
+      <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
+      <button class="btn btn-gold" onclick="signIn()">LOGIN</button>
+      <button class="btn btn-ghost" style="display:none;" id="btn-logout" onclick="signOut()">LOGOUT</button>
+      <div id="auth-err">⚠ Login failed. Check email/password.</div>
+    </div>
+
+    <!-- ADMIN CONTENT -->
+    <div id="adm-content" style="display:none;">
+      <div class="adm-tabs">
+        <button class="adm-tab active" onclick="switchTab('matches',this)">⚽ Enter Results</button>
+        <button class="adm-tab" onclick="switchTab('log',this)">📋 Match Log</button>
+        <button class="adm-tab" onclick="switchTab('teams',this)">👥 Teams</button>
+        <button class="adm-tab" onclick="switchTab('settings',this)">⚙ Settings</button>
+      </div>
+
+      <div class="adm-body" id="tab-matches">
+        <div class="slbl">Add Match Result</div>
+        <div class="f-row">
+          <div class="f-group wide">
+            <label class="fl">Home Team</label>
+            <select class="fi" id="m-home"></select>
+          </div>
+          <div class="f-group fixed" style="min-width:70px;">
+            <label class="fl">Home Goals</label>
+            <input class="fi" type="number" id="m-hgoal" value="0" min="0">
+          </div>
+          <div class="f-group fixed" style="min-width:70px;">
+            <label class="fl">Away Goals</label>
+            <input class="fi" type="number" id="m-agoal" value="0" min="0">
+          </div>
+          <div class="f-group wide">
+            <label class="fl">Away Team</label>
+            <select class="fi" id="m-away"></select>
+          </div>
+          <div class="f-group fixed">
+            <label class="fl">Matchday</label>
+            <input class="fi" type="text" id="m-md" placeholder="MD1" style="width:70px;">
+          </div>
+        </div>
+        <div class="f-row">
+          <button class="btn btn-gold" onclick="addMatch()">⚽ ADD RESULT</button>
+          <span id="match-msg" style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:var(--green);letter-spacing:1px;align-self:center;"></span>
+        </div>
+        <div class="slbl" style="margin-top:24px;">Recent Results (last 5)</div>
+        <div class="match-log" id="recent-log"></div>
+      </div>
+
+      <div class="adm-body" id="tab-log" style="display:none;">
+        <div class="slbl">All Match Results — click ✕ to delete</div>
+        <div class="match-log" id="full-log" style="max-height:420px;"></div>
+      </div>
+
+      <div class="adm-body" id="tab-teams" style="display:none;">
+        <div class="slbl">Manual Override — edit stats directly (overrides match calculation)</div>
+        <p style="font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--muted);letter-spacing:1px;margin-bottom:12px;">
+          ⚠ Overriding a team's stats manually will replace auto-calculated values for that team only. Leave blank to keep auto-calculated.
+        </p>
+        <div class="ov-hdr"><span>Team</span><span>P</span><span>W</span><span>D</span><span>L</span><span>GF</span><span>GA</span><span></span></div>
+        <div class="ov-list" id="ov-list"></div>
+        <div class="f-row" style="margin-top:12px;">
+          <button class="btn btn-blue" onclick="addTeamPrompt()">+ ADD TEAM</button>
+          <button class="btn btn-gold" onclick="saveOverrides()">💾 SAVE OVERRIDES</button>
+        </div>
+      </div>
+
+      <div class="adm-body" id="tab-settings" style="display:none;">
+        <div class="slbl">League Title & Matchday</div>
+        <div class="f-row">
+          <div class="f-group wide">
+            <label class="fl">League Title</label>
+            <input class="fi" type="text" id="s-title" placeholder="E-LEAGUE">
+          </div>
+          <div class="f-group wide">
+            <label class="fl">Current Matchday Label</label>
+            <input class="fi" type="text" id="s-matchday" placeholder="Matchday 1">
+          </div>
+          <button class="btn btn-gold" style="align-self:flex-end;" onclick="saveSettings()">SAVE</button>
+        </div>
+        <div class="slbl">Danger Zone</div>
+        <div class="f-row" style="gap:12px;">
+          <button class="btn btn-red" onclick="clearMatches()">🗑 CLEAR ALL MATCHES</button>
+          <button class="btn btn-red" onclick="fullReset()">↺ FULL RESET</button>
+        </div>
+        <p style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:var(--muted);letter-spacing:1px;margin-top:8px;">
+          Full reset removes all matches, overrides and resets teams to defaults.
+        </p>
+        <div class="slbl" style="margin-top:24px;">Export Data</div>
+        <button class="btn btn-ghost" onclick="exportJSON()">⬇ EXPORT AS JSON FILE</button>
+      </div>
+    </div><!-- /adm-content -->
+
+    <div class="adm-footer" id="adm-footer" style="display:none;">
+      <button class="btn btn-gold" onclick="closeAdmin()">✓ CLOSE</button>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--muted);align-self:center;">Logged in</span>
+    </div>
+  </div>
+</div><!-- /adm-overlay -->
+
+<footer>E-LEAGUE · OFFICIAL STANDINGS · ALL RIGHTS RESERVED</footer>
+<div id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   FIREBASE CONFIG – YOUR REAL CONFIG
+═══════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey: "AIzaSyDD8NmFUbOyHbuiixq2Mp7xR9iAP-LGZjY",
+  authDomain: "eleaguev1.firebaseapp.com",
+  databaseURL: "https://eleaguev1-default-rtdb.firebaseio.com",
+  projectId: "eleaguev1",
+  storageBucket: "eleaguev1.firebasestorage.app",
+  messagingSenderId: "1040472856803",
+  appId: "1:1040472856803:web:d8f58c49fd1394ef1b4dd6"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
+/* ═══════════════════════════════════════════════
+   DATA CONSTANTS & EMPTY STATE
+═══════════════════════════════════════════════ */
+const DEFAULT_TITLE    = "E-LEAGUE";
+const DEFAULT_MATCHDAY = "Matchday 1";
+
+const DEFAULT_TEAMS = [
+  "Gamerz Hearts","Simi Fc","Princewill","Youngwill","Demanuel",
+  "General Tayoh","Legends","Sportify","Real Player","PS","Uvkage",
+  "Killer_Bots","Derulo","Theory","Caleb","Football","King of Hearts",
+  "Lil-Stxph","Okazaki","Pope Di","Safari Ousman","TheMaster06","Viking","Von"
+];
+
+// Current state (synced from Firebase)
+let teams         = [];
+let matches       = [];
+let leagueTitle   = DEFAULT_TITLE;
+let matchdayLabel = DEFAULT_MATCHDAY;
+let adminLoggedIn = false;   // set by auth state listener
+
+/* ═══════════════════════════════════════════════
+   HELPER: escape HTML to prevent XSS
+═══════════════════════════════════════════════ */
+function escapeHTML(str) {
+  return String(str).replace(/[&<>"]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    if (m === '"') return '&quot;';
+    return m;
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   STATS CALCULATION (unchanged)
+═══════════════════════════════════════════════ */
+function calcStats() {
+  const raw = {};
+  teams.forEach(t => {
+    raw[t.name] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
+  });
+  matches.forEach(m => {
+    const h = m.home, a = m.away;
+    if (!raw[h]) raw[h] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    if (!raw[a]) raw[a] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    raw[h].p++; raw[a].p++;
+    raw[h].gf += m.hg; raw[h].ga += m.ag;
+    raw[a].gf += m.ag; raw[a].ga += m.hg;
+    if (m.hg > m.ag) { raw[h].w++; raw[a].l++; }
+    else if (m.hg < m.ag) { raw[a].w++; raw[h].l++; }
+    else { raw[h].d++; raw[a].d++; }
+  });
+  return teams.map(t => {
+    const base = raw[t.name] || {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    const ov = t.override;
+    return {
+      name: t.name,
+      p:  ov && ov.p  != null ? ov.p  : base.p,
+      w:  ov && ov.w  != null ? ov.w  : base.w,
+      d:  ov && ov.d  != null ? ov.d  : base.d,
+      l:  ov && ov.l  != null ? ov.l  : base.l,
+      gf: ov && ov.gf != null ? ov.gf : base.gf,
+      ga: ov && ov.ga != null ? ov.ga : base.ga,
+    };
+  });
+}
+
+function pts(t){ return t.w*3 + t.d; }
+function gd(t) { return t.gf - t.ga; }
+
+function h2hStats(tNames) {
+  const h2h = {};
+  tNames.forEach(n => h2h[n] = {pts:0,gd:0,gf:0});
+  matches.forEach(m => {
+    if (tNames.includes(m.home) && tNames.includes(m.away)) {
+      if (m.hg > m.ag) { h2h[m.home].pts += 3; }
+      else if (m.hg < m.ag) { h2h[m.away].pts += 3; }
+      else { h2h[m.home].pts += 1; h2h[m.away].pts += 1; }
+      h2h[m.home].gd += (m.hg - m.ag); h2h[m.home].gf += m.hg;
+      h2h[m.away].gd += (m.ag - m.hg); h2h[m.away].gf += m.ag;
+    }
+  });
+  return h2h;
+}
+
+function sortActive(active) {
+  active.sort((a,b) => {
+    if (pts(b) !== pts(a)) return pts(b) - pts(a);
+    if (gd(b)  !== gd(a))  return gd(b)  - gd(a);
+    return b.gf - a.gf;
+  });
+  let i = 0;
+  while (i < active.length) {
+    let j = i + 1;
+    while (j < active.length && pts(active[j]) === pts(active[i]) && gd(active[j]) === gd(active[i]) && active[j].gf === active[i].gf) j++;
+    if (j - i > 1) {
+      const group = active.slice(i, j);
+      const names = group.map(t => t.name);
+      const h2h = h2hStats(names);
+      group.sort((a,b) => {
+        if (h2h[b].pts !== h2h[a].pts) return h2h[b].pts - h2h[a].pts;
+        if (h2h[b].gd  !== h2h[a].gd)  return h2h[b].gd  - h2h[a].gd;
+        return h2h[b].gf - h2h[a].gf;
+      });
+      active.splice(i, j - i, ...group);
+    }
+    i = j;
+  }
+  return active;
+}
+
+function sortedTable() {
+  const stats = calcStats();
+  const active = stats.filter(t => t.p >= 1);
+  const zero   = stats.filter(t => t.p === 0);
+  sortActive(active);
+  zero.sort((a,b) => a.name.localeCompare(b.name));
+  return [...active, ...zero];
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER FUNCTIONS (now with safe text insertion)
+═══════════════════════════════════════════════ */
+function renderStandings() {
+  document.getElementById('hd-title').textContent    = leagueTitle;
+  document.getElementById('hd-matchday').textContent = matchdayLabel;
+  document.getElementById('lbl-matchday').textContent = matchdayLabel;
+
+  const sorted = sortedTable();
+  const firstZero = sorted.findIndex(t => t.p === 0);
+  const tbody = document.getElementById('standings-body');
+  tbody.innerHTML = '';
+
+  sorted.forEach((t, i) => {
+    const rank = i + 1;
+    const p    = pts(t);
+    const d    = gd(t);
+    const gdStr = d > 0 ? `+${d}` : `${d}`;
+    const gdCls = d > 0 ? 'gp' : d < 0 ? 'gn' : 'gz';
+    const initials = t.name.substring(0,2).toUpperCase();
+
+    let zone = rank <= 4 ? 'zone-g' : rank <= sorted.filter(x=>x.p>0).length-4 ? 'zone-b' : '';
+    const zeroClass = t.p === 0 ? 'zero' : '';
+    const rkCls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
+
+    if (i === firstZero && firstZero > 0) {
+      const dr = document.createElement('tr');
+      dr.className = 'div-row';
+      dr.innerHTML = '<td colspan="10">— AWAITING FIRST MATCH —</td>';
+      tbody.appendChild(dr);
+    }
+
+    const tr = document.createElement('tr');
+    tr.className = [zone, zeroClass].filter(Boolean).join(' ');
+
+    tr.innerHTML = '';
+    const safeName = escapeHTML(t.name);
+    const safeInit = escapeHTML(initials);
+    tr.innerHTML = `
+      <td class="rk tl ${escapeHTML(rkCls)}">${rank}</td>
+      <td class="tl">
+        <span class="ava">${safeInit}</span>
+        <span class="tname">${safeName}</span>
+      </td>
+      <td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td>
+      <td>${t.gf}</td><td>${t.ga}</td>
+      <td class="${gdCls}">${gdStr}</td>
+      <td class="pts ${rank<=3?'hi':''}">${p}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderResults() {
+  const grid = document.getElementById('results-grid');
+  if (matches.length === 0) {
+    grid.innerHTML = '<div class="empty-state">NO MATCHES PLAYED YET</div>';
+    return;
+  }
+  const rev = [...matches].reverse();
+  grid.innerHTML = rev.map(m => {
+    const homeWin = m.hg > m.ag, awayWin = m.ag > m.hg;
+    const safeHome = escapeHTML(m.home);
+    const safeAway = escapeHTML(m.away);
+    const safeMD = escapeHTML(m.md || '');
+    return `
+    <div class="result-card">
+      <div class="rc-team home" style="${homeWin?'color:var(--gold)':''}">${safeHome}</div>
+      <div class="rc-wrap">
+        <div class="rc-score">${m.hg} – ${m.ag}</div>
+        <div class="rc-meta">${safeMD}</div>
+      </div>
+      <div class="rc-team" style="${awayWin?'color:var(--gold)':''}">${safeAway}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderMatchLog(elId, limit) {
+  const el = document.getElementById(elId);
+  const list = limit ? [...matches].slice(-limit).reverse() : [...matches].reverse();
+  if (list.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;">No matches yet</div>'; return; }
+  el.innerHTML = list.map(m => `
+    <div class="ml-row">
+      <span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span>
+      <span class="ml-score">${m.hg}</span>
+      <span class="ml-sep">–</span>
+      <span class="ml-score">${m.ag}</span>
+      <span class="ml-teams">${escapeHTML(m.away)}</span>
+      <span class="ml-md">${escapeHTML(m.md||'')}</span>
+      <button class="btn btn-red btn-sm" onclick="deleteMatch('${m.id}')">✕</button>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════
+   FIREBASE DATA WRITE HELPERS
+═══════════════════════════════════════════════ */
+function writeData(data) {
+  return db.ref().set(data);
+}
+
+function resetDataToDefaults() {
+  return writeData({
+    teams: DEFAULT_TEAMS.map(n => ({ name: n, override: null })),
+    matches: [],
+    leagueTitle: DEFAULT_TITLE,
+    matchdayLabel: DEFAULT_MATCHDAY
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   ADMIN OPERATIONS (write directly to Firebase)
+═══════════════════════════════════════════════ */
+function addMatch() {
+  if (!adminLoggedIn) { showToast('You must be logged in as admin'); return; }
+  const home  = document.getElementById('m-home').value;
+  const away  = document.getElementById('m-away').value;
+  const hg    = parseInt(document.getElementById('m-hgoal').value) || 0;
+  const ag    = parseInt(document.getElementById('m-agoal').value) || 0;
+  const md    = document.getElementById('m-md').value.trim();
+
+  if (!home || !away) { showToast('SELECT BOTH TEAMS'); return; }
+  if (home === away)  { showToast('SAME TEAM SELECTED'); return; }
+
+  const newMatches = [...matches, { home, away, hg, ag, md, id: Date.now().toString() }];
+  db.ref('matches').set(newMatches)
+    .then(() => {
+      document.getElementById('m-hgoal').value = 0;
+      document.getElementById('m-agoal').value = 0;
+      const msg = document.getElementById('match-msg');
+      msg.textContent = `✓ ${home} ${hg}–${ag} ${away} added`;
+      setTimeout(() => msg.textContent = '', 3000);
+    })
+    .catch(err => showToast('Error saving match'));
+}
+
+function deleteMatch(id) {
+  if (!adminLoggedIn) return;
+  if (!confirm('Delete this match result?')) return;
+  const newMatches = matches.filter(m => m.id !== id);
+  db.ref('matches').set(newMatches).catch(err => showToast('Error deleting'));
+}
+
+function saveOverrides() {
+  if (!adminLoggedIn) return;
+  const rows = document.querySelectorAll('.ov-row');
+  const newTeams = [...teams];
+  rows.forEach(row => {
+    const i = parseInt(row.dataset.idx);
+    if (i >= newTeams.length) return;
+    const name = row.querySelector('[data-f=name]').value.trim();
+    if (name) newTeams[i].name = name;
+
+    const fields = ['p','w','d','l','gf','ga'];
+    const ov = {};
+    let hasOv = false;
+    fields.forEach(f => {
+      const v = row.querySelector(`[data-f=${f}]`).value;
+      if (v !== '') { ov[f] = parseInt(v)||0; hasOv = true; }
+      else           { ov[f] = null; }
+    });
+    newTeams[i].override = hasOv ? ov : null;
+  });
+  db.ref('teams').set(newTeams)
+    .then(() => showToast('OVERRIDES SAVED ✓'))
+    .catch(err => showToast('Error saving'));
+}
+
+function addTeamPrompt() {
+  if (!adminLoggedIn) return;
+  const name = prompt('New team name:');
+  if (!name || !name.trim()) return;
+  const newTeams = [...teams, { name: name.trim(), override: null }];
+  db.ref('teams').set(newTeams).catch(err => showToast('Error adding team'));
+}
+
+function removeTeam(i) {
+  if (!adminLoggedIn) return;
+  if (!confirm(`Remove "${teams[i].name}"? Their match results will remain.`)) return;
+  const newTeams = [...teams];
+  newTeams.splice(i, 1);
+  db.ref('teams').set(newTeams).catch(err => showToast('Error removing team'));
+}
+
+function saveSettings() {
+  if (!adminLoggedIn) return;
+  const newTitle   = document.getElementById('s-title').value.trim() || DEFAULT_TITLE;
+  const newMD = document.getElementById('s-matchday').value.trim() || DEFAULT_MATCHDAY;
+  db.ref().update({ leagueTitle: newTitle, matchdayLabel: newMD })
+    .then(() => showToast('SETTINGS SAVED ✓'))
+    .catch(err => showToast('Error saving settings'));
+}
+
+function clearMatches() {
+  if (!adminLoggedIn) return;
+  if (!confirm('Delete ALL match results? This cannot be undone.')) return;
+  db.ref('matches').set([]).catch(err => showToast('Error clearing'));
+}
+
+function fullReset() {
+  if (!adminLoggedIn) return;
+  if (!confirm('FULL RESET — removes all matches and overrides. Are you sure?')) return;
+  resetDataToDefaults().catch(err => showToast('Error resetting'));
+}
+
+/* ═══════════════════════════════════════════════
+   EXPORT (JSON)
+═══════════════════════════════════════════════ */
+function exportJSON() {
+  const data = { teams, matches, leagueTitle, matchdayLabel };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `eleague_data_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  showToast('EXPORTED ✓');
+}
+
+/* ═══════════════════════════════════════════════
+   AUTH HANDLERS
+═══════════════════════════════════════════════ */
+function signIn() {
+  const email = document.getElementById('auth-email').value;
+  const password = document.getElementById('auth-password').value;
+  auth.signInWithEmailAndPassword(email, password)
+    .catch(error => {
+      document.getElementById('auth-err').style.display = 'block';
+      document.getElementById('auth-password').value = '';
+    });
+}
+
+function signOut() {
+  auth.signOut();
+}
+
+/* ═══════════════════════════════════════════════
+   ADMIN UI (modified auth state)
+═══════════════════════════════════════════════ */
+function openAdmin() {
+  document.getElementById('adm-overlay').classList.add('open');
+  if (!adminLoggedIn) {
+    document.getElementById('auth-gate').style.display = '';
+    document.getElementById('adm-content').style.display = 'none';
+    document.getElementById('adm-footer').style.display = 'none';
+    document.getElementById('auth-err').style.display = 'none';
+    document.getElementById('btn-logout').style.display = 'none';
+  } else {
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('adm-content').style.display = '';
+    document.getElementById('adm-footer').style.display = '';
+    loadAdminPanel();
+  }
+}
+
+function closeAdmin() {
+  document.getElementById('adm-overlay').classList.remove('open');
+}
+
+function loadAdminPanel() {
+  document.getElementById('s-title').value    = leagueTitle;
+  document.getElementById('s-matchday').value = matchdayLabel;
+  document.getElementById('m-md').value       = matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
+  populateSelects();
+  renderMatchLog('recent-log', 5);
+  renderMatchLog('full-log');
+  renderOverrides();
+}
+
+function switchTab(tab, btn) {
+  ['matches','log','teams','settings'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===tab ? '' : 'none';
+  });
+  document.querySelectorAll('.adm-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+/* ═══════════════════════════════════════════════
+   TEAM SELECTS & OVERRIDES RENDER
+═══════════════════════════════════════════════ */
+function populateSelects() {
+  ['m-home','m-away'].forEach(id => {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    sel.innerHTML = teams.map(t =>
+      `<option value="${escapeHTML(t.name)}" ${t.name===cur?'selected':''}>${escapeHTML(t.name)}</option>`
+    ).join('');
+  });
+  if (teams.length > 1) document.getElementById('m-away').value = teams[1].name;
+}
+
+function renderOverrides() {
+  const stats = calcStats();
+  const statsMap = {};
+  stats.forEach(t => statsMap[t.name] = t);
+
+  const list = document.getElementById('ov-list');
+  list.innerHTML = teams.map((t, i) => {
+    const ov = t.override || {};
+    const s  = statsMap[t.name] || {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    const val = f => ov[f] != null ? ov[f] : '';
+    const ph  = f => s[f];
+    return `
+    <div class="ov-row" data-idx="${i}">
+      <input class="nm" type="text" value="${escapeHTML(t.name)}" placeholder="Team name" data-f="name">
+      <input type="number" value="${val('p')}"  placeholder="${ph('p')}"  min="0" data-f="p">
+      <input type="number" value="${val('w')}"  placeholder="${ph('w')}"  min="0" data-f="w">
+      <input type="number" value="${val('d')}"  placeholder="${ph('d')}"  min="0" data-f="d">
+      <input type="number" value="${val('l')}"  placeholder="${ph('l')}"  min="0" data-f="l">
+      <input type="number" value="${val('gf')}" placeholder="${ph('gf')}" min="0" data-f="gf">
+      <input type="number" value="${val('ga')}" placeholder="${ph('ga')}" min="0" data-f="ga">
+      <button class="btn btn-red btn-sm" onclick="removeTeam(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════
+   PAGE NAV
+═══════════════════════════════════════════════ */
+function showPage(page, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('pg-'+page).classList.add('active');
+  btn.classList.add('active');
+}
+
+/* ═══════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════ */
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+document.getElementById('adm-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('adm-overlay')) closeAdmin();
+});
+
+/* ═══════════════════════════════════════════════
+   FIREBASE AUTH STATE LISTENER & DATA SYNC
+═══════════════════════════════════════════════ */
+auth.onAuthStateChanged(user => {
+  adminLoggedIn = !!user;
+  const logoutBtn = document.getElementById('btn-logout');
+  if (user) {
+    logoutBtn.style.display = 'inline-block';
+    if (document.getElementById('adm-overlay').classList.contains('open')) {
+      document.getElementById('auth-gate').style.display = 'none';
+      document.getElementById('adm-content').style.display = '';
+      document.getElementById('adm-footer').style.display = '';
+      loadAdminPanel();
+    }
+  } else {
+    logoutBtn.style.display = 'none';
+    if (document.getElementById('adm-overlay').classList.contains('open')) {
+      document.getElementById('auth-gate').style.display = '';
+      document.getElementById('adm-content').style.display = 'none';
+      document.getElementById('adm-footer').style.display = 'none';
+    }
+  }
+});
+
+// Real-time listener for the whole database
+db.ref().on('value', (snap) => {
+  const data = snap.val();
+  if (data && data.teams) {
+    teams         = data.teams;
+    matches       = data.matches || [];
+    leagueTitle   = data.leagueTitle || DEFAULT_TITLE;
+    matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
+
+    renderStandings();
+    renderResults();
+    if (adminLoggedIn && document.getElementById('adm-overlay').classList.contains('open')) {
+      populateSelects();
+      renderMatchLog('recent-log', 5);
+      renderMatchLog('full-log');
+      renderOverrides();
+    }
+  }
+});
+
+// On first load, ensure database has a structure if empty
+db.ref().once('value').then(snap => {
+  if (!snap.exists()) {
+    resetDataToDefaults();
+  }
+});
+</script>
+</body>
+</html>

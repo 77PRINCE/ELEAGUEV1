@@ -135,7 +135,7 @@ td.tl{text-align:left;}
 
 .adm-body{padding:22px 24px;}
 
-/* Auth gate replaces pass-gate */
+/* Auth gate */
 #auth-gate{text-align:center;padding:52px 20px;}
 #auth-gate h3{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:3px;
   color:var(--gold);margin-bottom:6px;}
@@ -257,6 +257,8 @@ footer{text-align:center;padding:20px;color:var(--muted);
       <div class="pill"><b>③</b> Goals Scored</div>
       <div class="pill"><b>④</b> Head-to-Head</div>
       <div class="pill"><b>✦</b> Active players rank above 0-match players</div>
+      <!-- ADDED: manual refresh button for peace of mind -->
+      <button class="btn btn-ghost btn-sm" onclick="manualRefresh()" style="margin-left:auto;">↻ Refresh</button>
     </div>
     <div class="tbl-wrap">
       <table>
@@ -449,7 +451,38 @@ function escapeHTML(str) {
 }
 
 /* ═══════════════════════════════════════════════
-   STATS CALCULATION
+   ROBUST DATA SANITIZER
+═══════════════════════════════════════════════ */
+function sanitizeTeams(raw) {
+  // Convert object to array if needed
+  let arr = Array.isArray(raw) ? raw : Object.values(raw);
+  // Remove null/undefined and objects without a valid name
+  arr = arr.filter(t => t && typeof t.name === 'string');
+  // Remove duplicate names (keep first)
+  const seen = new Set();
+  arr = arr.filter(t => {
+    if (seen.has(t.name)) return false;
+    seen.add(t.name);
+    return true;
+  });
+  // Ensure every team has a proper override field
+  arr = arr.map(t => ({
+    name: t.name,
+    override: t.override && typeof t.override === 'object' ? t.override : null
+  }));
+  return arr.length > 0 ? arr : DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+}
+
+function sanitizeMatches(rawMatches, teamNames) {
+  if (!Array.isArray(rawMatches)) return [];
+  return rawMatches.filter(m =>
+    m && typeof m.home === 'string' && typeof m.away === 'string' &&
+    teamNames.has(m.home) && teamNames.has(m.away)
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   STATS CALCULATION (unchanged core)
 ═══════════════════════════════════════════════ */
 function calcStats() {
   const raw = {};
@@ -500,7 +533,12 @@ function h2hStats(tNames) {
   return h2h;
 }
 
+/* FIXED: sortActive now filters undefined and handles empty arrays */
 function sortActive(active) {
+  // Remove any undefined/null entries
+  active = active.filter(t => t !== undefined && t !== null);
+  if (active.length < 2) return active;
+
   active.sort((a,b) => {
     if (pts(b) !== pts(a)) return pts(b) - pts(a);
     if (gd(b)  !== gd(a))  return gd(b)  - gd(a);
@@ -526,13 +564,14 @@ function sortActive(active) {
   return active;
 }
 
+/* FIXED: final filter to remove any remaining undefined */
 function sortedTable() {
   const stats = calcStats();
   const active = stats.filter(t => t.p >= 1);
   const zero   = stats.filter(t => t.p === 0);
   sortActive(active);
   zero.sort((a,b) => a.name.localeCompare(b.name));
-  return [...active, ...zero];
+  return [...active, ...zero].filter(t => t !== undefined);
 }
 
 /* ═══════════════════════════════════════════════
@@ -549,6 +588,8 @@ function renderStandings() {
   tbody.innerHTML = '';
 
   sorted.forEach((t, i) => {
+    // Extra guarantee: if t is undefined, skip
+    if (!t) return;
     const rank = i + 1;
     const p    = pts(t);
     const d    = gd(t);
@@ -556,7 +597,7 @@ function renderStandings() {
     const gdCls = d > 0 ? 'gp' : d < 0 ? 'gn' : 'gz';
     const initials = t.name.substring(0,2).toUpperCase();
 
-    let zone = rank <= 4 ? 'zone-g' : rank <= sorted.filter(x=>x.p>0).length-4 ? 'zone-b' : '';
+    let zone = rank <= 4 ? 'zone-g' : (sorted.filter(x=>x.p>0).length - rank < 4 ? 'zone-r' : 'zone-b');
     const zeroClass = t.p === 0 ? 'zero' : '';
     const rkCls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
 
@@ -589,7 +630,7 @@ function renderStandings() {
 
 function renderResults() {
   const grid = document.getElementById('results-grid');
-  if (matches.length === 0) {
+  if (!matches || matches.length === 0) {
     grid.innerHTML = '<div class="empty-state">NO MATCHES PLAYED YET</div>';
     return;
   }
@@ -614,7 +655,7 @@ function renderResults() {
 function renderMatchLog(elId, limit) {
   const el = document.getElementById(elId);
   const list = limit ? [...matches].slice(-limit).reverse() : [...matches].reverse();
-  if (list.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;">No matches yet</div>'; return; }
+  if (!list || list.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;">No matches yet</div>'; return; }
   el.innerHTML = list.map(m => `
     <div class="ml-row">
       <span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span>
@@ -752,11 +793,31 @@ function exportJSON() {
 }
 
 /* ═══════════════════════════════════════════════
-   NEW: Refresh override fields from database
+   REFRESH OVERRIDES (admin)
 ═══════════════════════════════════════════════ */
 function refreshOverrides() {
   renderOverrides();
   showToast('TEAM DATA REFRESHED FROM DATABASE');
+}
+
+/* ADDED: Manual refresh for public table */
+function manualRefresh() {
+  db.ref().once('value', (snap) => {
+    const data = snap.val();
+    if (data && data.teams) {
+      teams = sanitizeTeams(data.teams);
+      const teamNamesSet = new Set(teams.map(t => t.name));
+      matches = sanitizeMatches(data.matches || [], teamNamesSet);
+      leagueTitle = data.leagueTitle || DEFAULT_TITLE;
+      matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
+    } else {
+      teams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+      matches = [];
+    }
+    renderStandings();
+    renderResults();
+    showToast('DATA REFRESHED ✓');
+  });
 }
 
 /* ═══════════════════════════════════════════════
@@ -823,6 +884,7 @@ function switchTab(tab, btn) {
 function populateSelects() {
   ['m-home','m-away'].forEach(id => {
     const sel = document.getElementById(id);
+    if (!sel) return;
     const cur = sel.value;
     sel.innerHTML = teams.map(t =>
       `<option value="${escapeHTML(t.name)}" ${t.name===cur?'selected':''}>${escapeHTML(t.name)}</option>`
@@ -908,28 +970,20 @@ auth.onAuthStateChanged(user => {
 renderStandings();
 renderResults();
 
-// Real-time listener – live sync with safety checks
+// Robus, crash-proof live listener
 db.ref().on('value', (snap) => {
   const data = snap.val();
-  if (data && data.teams) {
-    // Ensure teams is an array, not an object
-    let rawTeams = data.teams;
-    if (!Array.isArray(rawTeams)) {
-      // If it's an object (e.g., from a manual import), convert to array
-      rawTeams = Object.values(rawTeams);
+  try {
+    if (data && data.teams) {
+      teams = sanitizeTeams(data.teams);
+      const teamNamesSet = new Set(teams.map(t => t.name));
+      matches = sanitizeMatches(data.matches || [], teamNamesSet);
+      leagueTitle = data.leagueTitle || DEFAULT_TITLE;
+      matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
+    } else {
+      teams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+      matches = [];
     }
-    // Filter out any undefined or malformed entries
-    rawTeams = rawTeams.filter(t => t && typeof t.name === 'string');
-
-    if (rawTeams.length === 0) {
-      // Fallback to defaults if nothing valid remains
-      rawTeams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
-    }
-
-    teams         = rawTeams;
-    matches       = data.matches || [];
-    leagueTitle   = data.leagueTitle || DEFAULT_TITLE;
-    matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
 
     renderStandings();
     renderResults();
@@ -939,9 +993,10 @@ db.ref().on('value', (snap) => {
       renderMatchLog('full-log');
       renderOverrides();
     }
-  } else {
-    // If no teams in DB, use defaults
+  } catch (e) {
+    console.error('Render error, falling back to defaults:', e);
     teams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+    matches = [];
     renderStandings();
     renderResults();
   }

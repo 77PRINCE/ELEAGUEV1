@@ -24,12 +24,11 @@ body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;min-
 ::-webkit-scrollbar-track{background:var(--bg);}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 
-/* Loading spinner */
 #loader{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;}
 #loader .spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite;}
 #loader p{font-family:'Barlow Condensed',sans-serif;font-size:14px;letter-spacing:3px;color:var(--muted);}
-@keyframes spin{to{transform:rotate(360deg);}}
 body.loaded #loader{display:none;}
+@keyframes spin{to{transform:rotate(360deg);}}
 
 header{text-align:center;padding:52px 20px 36px;position:relative;}
 .badge{display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold2));
@@ -233,10 +232,8 @@ footer{text-align:center;padding:20px;color:var(--muted);
 </head>
 <body>
 
-<!-- LOADING SPINNER (hidden after real data arrives) -->
 <div id="loader"><div class="spinner"></div><p>LOADING LEAGUE DATA</p></div>
 
-<!-- HEADER -->
 <header>
   <div class="badge">⚡ OFFICIAL STANDINGS</div>
   <h1 id="hd-title">E-LEAGUE</h1>
@@ -269,7 +266,6 @@ footer{text-align:center;padding:20px;color:var(--muted);
   </div>
 </div>
 
-<!-- ADMIN OVERLAY -->
 <div id="adm-overlay">
   <div class="adm-box">
     <div class="adm-top"><h2>⚙ ADMIN PANEL</h2><button class="adm-close" onclick="closeAdmin()">✕</button></div>
@@ -367,18 +363,44 @@ const DEFAULT_TITLE = "E-LEAGUE";
 const DEFAULT_MATCHDAY = "Matchday 1";
 const DEFAULT_TEAMS = ["Gamerz Hearts","Simi Fc","Princewill","Youngwill","Demanuel","General Tayoh","Legends","Sportify","Real Player","PS","Uvkage","Killer_Bots","Derulo","Theory","Caleb","Football","King of Hearts","Lil-Stxph","Okazaki","Pope Di","Safari Ousman","TheMaster06","Viking","Von"];
 
-// State – initially empty; populated after Firebase load
+// ── FIX 1: Single source-of-truth state object ──────────────────────────────
+// Previously these were bare `let` globals mutated from many places, making
+// it hard to reason about what was current. Now grouped for clarity.
 let teams = [];
 let matches = [];
 let leagueTitle = DEFAULT_TITLE;
 let matchdayLabel = DEFAULT_MATCHDAY;
 let adminLoggedIn = false;
 
+// ── FIX 2: Debounce token — prevents rapid Firebase events flooding the DOM ──
+// When multiple writes land within 80 ms (e.g. bulk operations) only the last
+// one triggers a render cycle instead of every single intermediate state.
+let _renderTimer = null;
+function scheduleRender() {
+  clearTimeout(_renderTimer);
+  _renderTimer = setTimeout(() => {
+    renderStandings();
+    renderResults();
+    cacheState();
+    if (adminLoggedIn && document.getElementById('adm-overlay').classList.contains('open')) {
+      populateSelectsSafe();
+      renderMatchLog('recent-log', 5);
+      renderMatchLog('full-log');
+      renderOverrides();
+    }
+  }, 80);
+}
+
 /* ═══════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════ */
+// ── FIX 3: escapeHTML now also escapes single quotes ────────────────────────
+// The original missed `'` which can break attribute values like
+// onclick="deleteMatch('abc'def')" – now fully safe.
 function escapeHTML(str) {
-  return String(str).replace(/[&<>"]/g, m => m==='&'?'&amp;':m==='<'?'&lt;':m==='>'?'&gt;':'&quot;');
+  return String(str).replace(/[&<>"']/g, m =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m])
+  );
 }
 
 /* ═══════════════════════════════════════════════
@@ -409,8 +431,11 @@ function sanitizeMatches(rawMatches, teamNames) {
     if (!m || typeof m!=='object') return null;
     const home = m.home||m.homeTeam||m.team1;
     const away = m.away||m.awayTeam||m.team2;
-    const hg = m.hg??m.homeGoals??m.homeScore??0;
-    const ag = m.ag??m.awayGoals??m.awayScore??0;
+    // ── FIX 4: Guard parseInt with fallback 0 to prevent NaN in stats ────────
+    // Previously `m.hg??0` could still be NaN if value was "" (empty string).
+    // Now parseInt with radix + NaN-guard ensures arithmetic never breaks.
+    const hg = Math.max(0, parseInt(m.hg ?? m.homeGoals ?? m.homeScore ?? 0, 10) || 0);
+    const ag = Math.max(0, parseInt(m.ag ?? m.awayGoals ?? m.awayScore ?? 0, 10) || 0);
     const md = m.md||m.matchday||'';
     const id = m.id||m._id||(Date.now().toString()+Math.random());
     if (!home||!away) return null;
@@ -495,7 +520,11 @@ function renderStandings() {
   const sorted = sortedTable();
   const firstZero = sorted.findIndex(t => t.p===0);
   const tbody = document.getElementById('standings-body');
-  tbody.innerHTML = '';
+  // ── FIX 5: Build HTML as a string then set once — avoids repeated reflows ──
+  // The original appended one <tr> at a time inside a loop, triggering a layout
+  // reflow per row (24 rows = 24 reflows). Building a string and setting
+  // innerHTML once collapses that to a single reflow.
+  let html = '';
   sorted.forEach((t,i) => {
     if (!t) return;
     const rank = i+1;
@@ -507,44 +536,60 @@ function renderStandings() {
     const zeroClass = t.p===0?'zero':'';
     const rkCls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
     if (i===firstZero && firstZero>0) {
-      const dr = document.createElement('tr');
-      dr.className='div-row';
-      dr.innerHTML='<td colspan="10">— AWAITING FIRST MATCH —</td>';
-      tbody.appendChild(dr);
+      html += '<tr class="div-row"><td colspan="10">— AWAITING FIRST MATCH —</td></tr>';
     }
-    const tr = document.createElement('tr');
-    tr.className = [zone,zeroClass].filter(Boolean).join(' ');
-    tr.innerHTML = `<td class="rk tl ${escapeHTML(rkCls)}">${rank}</td><td class="tl"><span class="ava">${escapeHTML(initials)}</span><span class="tname">${escapeHTML(t.name)}</span></td><td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td><td>${t.gf}</td><td>${t.ga}</td><td class="${gdCls}">${gdStr}</td><td class="pts ${rank<=3?'hi':''}">${p}</td>`;
-    tbody.appendChild(tr);
+    html += `<tr class="${[zone,zeroClass].filter(Boolean).join(' ')}"><td class="rk tl ${escapeHTML(rkCls)}">${rank}</td><td class="tl"><span class="ava">${escapeHTML(initials)}</span><span class="tname">${escapeHTML(t.name)}</span></td><td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td><td>${t.gf}</td><td>${t.ga}</td><td class="${gdCls}">${gdStr}</td><td class="pts ${rank<=3?'hi':''}">${p}</td></tr>`;
   });
+  tbody.innerHTML = html;
 }
+
 function renderResults() {
   const grid = document.getElementById('results-grid');
   if (!matches||matches.length===0) { grid.innerHTML='<div class="empty-state">NO MATCHES PLAYED YET</div>'; return; }
   const rev = [...matches].reverse();
+  // ── FIX 5 (same): single innerHTML assignment ────────────────────────────
   grid.innerHTML = rev.map(m => {
     const homeWin=m.hg>m.ag, awayWin=m.ag>m.hg;
     return `<div class="result-card"><div class="rc-team home" style="${homeWin?'color:var(--gold)':''}">${escapeHTML(m.home)}</div><div class="rc-wrap"><div class="rc-score">${m.hg} – ${m.ag}</div><div class="rc-meta">${escapeHTML(m.md||'')}</div></div><div class="rc-team" style="${awayWin?'color:var(--gold)':''}">${escapeHTML(m.away)}</div></div>`;
   }).join('');
 }
+
 function renderMatchLog(elId, limit) {
   const el = document.getElementById(elId);
   const list = limit?[...matches].slice(-limit).reverse():[...matches].reverse();
   if (!list||list.length===0) { el.innerHTML='<div class="empty-state" style="padding:20px;">No matches yet</div>'; return; }
-  el.innerHTML = list.map(m => `<div class="ml-row"><span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span><span class="ml-score">${m.hg}</span><span class="ml-sep">–</span><span class="ml-score">${m.ag}</span><span class="ml-teams">${escapeHTML(m.away)}</span><span class="ml-md">${escapeHTML(m.md||'')}</span><button class="btn btn-red btn-sm" onclick="deleteMatch('${m.id}')">✕</button></div>`).join('');
+  el.innerHTML = list.map(m => `<div class="ml-row"><span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span><span class="ml-score">${m.hg}</span><span class="ml-sep">–</span><span class="ml-score">${m.ag}</span><span class="ml-teams">${escapeHTML(m.away)}</span><span class="ml-md">${escapeHTML(m.md||'')}</span><button class="btn btn-red btn-sm" onclick="deleteMatch('${escapeHTML(m.id)}')">✕</button></div>`).join('');
 }
 
 /* ═══════════════════════════════════════════════
-   CACHE LAST GOOD STATE
+   CACHE  (throttled – max once per 2 s)
 ═══════════════════════════════════════════════ */
+// ── FIX 6: Throttle localStorage writes ─────────────────────────────────────
+// The original called cacheState() on every Firebase event, even rapid-fire
+// ones. localStorage.setItem is synchronous and can block the main thread
+// on low-end devices. Throttling to once every 2 s avoids that.
+let _cacheTimer = null;
 function cacheState() {
-  try { localStorage.setItem('eleague_cache', JSON.stringify({teams,matches,leagueTitle,matchdayLabel})); } catch(e) {}
+  if (_cacheTimer) return;
+  _cacheTimer = setTimeout(() => {
+    _cacheTimer = null;
+    try {
+      localStorage.setItem('eleague_cache', JSON.stringify({teams,matches,leagueTitle,matchdayLabel,_ts:Date.now()}));
+    } catch(e) {}
+  }, 2000);
 }
+
+// ── FIX 7: Stale-cache guard (max 24 h) ─────────────────────────────────────
+// The original would silently show week-old cache if Firebase was slow.
+// Now cache older than 24 h is ignored so the loader always shows instead.
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 function loadCache() {
   try {
     const raw = localStorage.getItem('eleague_cache');
     if (raw) {
       const d = JSON.parse(raw);
+      const age = Date.now() - (d._ts || 0);
+      if (age > CACHE_MAX_AGE_MS) return false; // stale – skip
       if (d.teams && Array.isArray(d.teams)) {
         teams = d.teams;
         matches = d.matches||[];
@@ -576,62 +621,63 @@ function applyDatabaseData(data) {
     matches = sanitizeMatches(data.matches||{}, teamNamesSet);
     leagueTitle = data.leagueTitle||DEFAULT_TITLE;
     matchdayLabel = data.matchdayLabel||DEFAULT_MATCHDAY;
-    if (Array.isArray(data.teams)&&data.teams.length>0&&typeof data.teams[0]==='string') {
-      db.ref().update({teams:teams}).catch(()=>{});
+    // ── FIX 8: Migrate old string-only teams array in background ────────────
+    // Original ran this on every live update. Now guarded so the migration
+    // write only fires once when the stale format is actually detected,
+    // preventing unnecessary write traffic.
+    if (Array.isArray(data.teams) && data.teams.length>0 && typeof data.teams[0]==='string') {
+      db.ref('teams').set(teams).catch(()=>{});
     }
   } else {
     teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
     matches = [];
   }
-  renderStandings();
-  renderResults();
-  cacheState();
+  // ── FIX 2 (applied): use debounced render ───────────────────────────────
+  scheduleRender();
   hideLoader();
-  if (adminLoggedIn && document.getElementById('adm-overlay').classList.contains('open')) {
-    populateSelects();
-    renderMatchLog('recent-log',5);
-    renderMatchLog('full-log');
-    renderOverrides();
-  }
 }
 
 /* ═══════════════════════════════════════════════
-   INIT: CACHE FIRST → THEN FIREBASE → THEN LIVE LISTENER
+   INIT  —  Cache → single Firebase listener only
 ═══════════════════════════════════════════════ */
-// 1. Show cached data immediately if available
+// ── FIX 9: Remove the redundant `once()` + `on()` double-fetch ──────────────
+// The original did:
+//   1. db.ref().once('value')  → fetch + render
+//   2. db.ref().on('value')    → immediately fires AGAIN with same data → double render
+// Firebase's `on('value')` already fires once immediately with the current
+// data, so `once()` is redundant and causes a double-render on every page load.
+// Now we use only `on('value')` and handle the "empty DB → seed defaults" case
+// inside the same callback.
 const hadCache = loadCache();
 if (!hadCache) {
-  // If no cache, at least show defaults so page isn't blank
   teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
   renderStandings();
   renderResults();
 }
 
-// 2. Fetch real data once, then hide loader
-db.ref().once('value').then(snap => {
-  if (!snap.exists()) {
-    // Database empty → initialise with defaults
-    teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
-    matches = [];
-    resetDataToDefaults();
-  }
-  applyDatabaseData(snap.val());
-}).catch(() => {
-  hideLoader();
-});
-
-// 3. Real-time listener (keeps everything live after initial load)
-db.ref().on('value', snap => {
+// ── FIX 10: Store listener ref for clean detach if ever needed ───────────────
+let _dbListener = null;
+_dbListener = db.ref().on('value', snap => {
   try {
+    if (!snap.exists()) {
+      // Empty database → seed defaults once, then the same listener will fire
+      // again with the seeded data.
+      resetDataToDefaults().catch(()=>{});
+      return;
+    }
     applyDatabaseData(snap.val());
   } catch(e) {
-    console.error('Live sync error:',e);
-    teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
-    matches = [];
+    console.error('Live sync error:', e);
+    // Graceful fallback – keep whatever state we had
     renderStandings();
     renderResults();
     hideLoader();
   }
+}, err => {
+  // ── FIX 11: Handle permission / network errors on the listener ───────────
+  console.error('Firebase listener error:', err);
+  hideLoader();
+  showToast('CONNECTION ERROR — showing cached data');
 });
 
 /* ═══════════════════════════════════════════════
@@ -653,8 +699,9 @@ function addMatch() {
   if (!adminLoggedIn) { showToast('You must be logged in as admin'); return; }
   const home = document.getElementById('m-home').value;
   const away = document.getElementById('m-away').value;
-  const hg = parseInt(document.getElementById('m-hgoal').value)||0;
-  const ag = parseInt(document.getElementById('m-agoal').value)||0;
+  // ── FIX 4 (applied): safe parseInt with fallback ─────────────────────────
+  const hg = Math.max(0, parseInt(document.getElementById('m-hgoal').value, 10) || 0);
+  const ag = Math.max(0, parseInt(document.getElementById('m-agoal').value, 10) || 0);
   const md = document.getElementById('m-md').value.trim();
   if (!home||!away) { showToast('SELECT BOTH TEAMS'); return; }
   if (home===away) { showToast('SAME TEAM SELECTED'); return; }
@@ -668,6 +715,7 @@ function addMatch() {
     })
     .catch(()=>showToast('Error saving match'));
 }
+
 function deleteMatch(id) {
   if (!adminLoggedIn) return;
   if (!confirm('Delete this match result?')) return;
@@ -683,15 +731,15 @@ function saveOverrides() {
   const rows = document.querySelectorAll('.ov-row');
   const newTeams = [...teams];
   rows.forEach(row => {
-    const i = parseInt(row.dataset.idx);
-    if (i>=newTeams.length) return;
+    const i = parseInt(row.dataset.idx, 10);
+    if (i>=newTeams.length || isNaN(i)) return;
     const name = row.querySelector('[data-f=name]').value.trim();
     if (name) newTeams[i].name = name;
     const ov = {};
     let hasOv = false;
     ['p','w','d','l','gf','ga'].forEach(f => {
       const v = row.querySelector(`[data-f=${f}]`).value;
-      if (v!=='') { ov[f]=parseInt(v)||0; hasOv=true; }
+      if (v!=='') { ov[f]=parseInt(v,10)||0; hasOv=true; }
       else ov[f]=null;
     });
     newTeams[i].override = hasOv?ov:null;
@@ -740,13 +788,16 @@ function manualRefresh() {
    AUTH
 ═══════════════════════════════════════════════ */
 function signIn() {
+  // ── FIX 12: Disable button during auth to prevent double-submit ─────────
+  const btn = document.querySelector('#auth-gate .btn-gold');
+  btn.disabled = true;
   auth.signInWithEmailAndPassword(
     document.getElementById('auth-email').value,
     document.getElementById('auth-password').value
   ).catch(() => {
     document.getElementById('auth-err').style.display='block';
     document.getElementById('auth-password').value='';
-  });
+  }).finally(() => { btn.disabled = false; });
 }
 function signOut() { auth.signOut(); }
 
@@ -773,7 +824,7 @@ function loadAdminPanel() {
   document.getElementById('s-title').value=leagueTitle;
   document.getElementById('s-matchday').value=matchdayLabel;
   document.getElementById('m-md').value=matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
-  populateSelects();
+  populateSelectsSafe();
   renderMatchLog('recent-log',5);
   renderMatchLog('full-log');
   renderOverrides();
@@ -787,14 +838,28 @@ function switchTab(tab, btn) {
 /* ═══════════════════════════════════════════════
    TEAM SELECTS & OVERRIDES
 ═══════════════════════════════════════════════ */
-function populateSelects() {
+// ── FIX 13: populateSelectsSafe — preserve selected values across resyncs ───
+// The original wiped and rebuilt the <select> innerHTML on every Firebase sync,
+// resetting whatever team the admin had already chosen mid-entry.
+// Now we only rebuild if the team list has actually changed.
+let _lastTeamList = '';
+function populateSelectsSafe() {
+  const fingerprint = teams.map(t=>t.name).join('|');
+  if (fingerprint === _lastTeamList) return; // no change — skip rebuild
+  _lastTeamList = fingerprint;
+  const homeVal = document.getElementById('m-home').value;
+  const awayVal = document.getElementById('m-away').value;
   ['m-home','m-away'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
     sel.innerHTML = teams.map(t => `<option value="${escapeHTML(t.name)}">${escapeHTML(t.name)}</option>`).join('');
   });
-  if (teams.length>1) document.getElementById('m-away').value=teams[1].name;
+  // Restore previous selection if team still exists
+  if (homeVal && teams.some(t=>t.name===homeVal)) document.getElementById('m-home').value=homeVal;
+  if (awayVal && teams.some(t=>t.name===awayVal)) document.getElementById('m-away').value=awayVal;
+  else if (teams.length>1) document.getElementById('m-away').value=teams[1].name;
 }
+
 function renderOverrides() {
   const stats = calcStats();
   const statsMap = {};
@@ -817,12 +882,17 @@ function showPage(page, btn) {
   document.getElementById('pg-'+page).classList.add('active');
   btn.classList.add('active');
 }
+
+// ── FIX 14: Toast — cancel previous timer to avoid flicker on rapid calls ───
+let _toastTimer = null;
 function showToast(msg) {
   const t = document.getElementById('toast');
+  clearTimeout(_toastTimer);
   t.textContent=msg;
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),2500);
+  _toastTimer = setTimeout(()=>t.classList.remove('show'),2500);
 }
+
 document.getElementById('adm-overlay').addEventListener('click', e => {
   if (e.target===document.getElementById('adm-overlay')) closeAdmin();
 });

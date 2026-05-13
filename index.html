@@ -357,6 +357,7 @@ footer{text-align:center;padding:20px;color:var(--muted);
         <div class="f-row" style="margin-top:12px;">
           <button class="btn btn-blue" onclick="addTeamPrompt()">+ ADD TEAM</button>
           <button class="btn btn-gold" onclick="saveOverrides()">💾 SAVE OVERRIDES</button>
+          <button class="btn btn-ghost" onclick="refreshOverrides()">↻ REFRESH TEAMS</button>
         </div>
       </div>
 
@@ -427,12 +428,12 @@ const DEFAULT_TEAMS = [
   "Lil-Stxph","Okazaki","Pope Di","Safari Ousman","TheMaster06","Viking","Von"
 ];
 
-// Current state (synced from Firebase)
-let teams         = [];
+// Start with defaults so the page renders instantly
+let teams         = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
 let matches       = [];
 let leagueTitle   = DEFAULT_TITLE;
 let matchdayLabel = DEFAULT_MATCHDAY;
-let adminLoggedIn = false;   // set by auth state listener
+let adminLoggedIn = false;
 
 /* ═══════════════════════════════════════════════
    HELPER: escape HTML to prevent XSS
@@ -448,7 +449,7 @@ function escapeHTML(str) {
 }
 
 /* ═══════════════════════════════════════════════
-   STATS CALCULATION (unchanged)
+   STATS CALCULATION
 ═══════════════════════════════════════════════ */
 function calcStats() {
   const raw = {};
@@ -535,7 +536,7 @@ function sortedTable() {
 }
 
 /* ═══════════════════════════════════════════════
-   RENDER FUNCTIONS (now with safe text insertion)
+   RENDER FUNCTIONS (safe text insertion)
 ═══════════════════════════════════════════════ */
 function renderStandings() {
   document.getElementById('hd-title').textContent    = leagueTitle;
@@ -569,7 +570,6 @@ function renderStandings() {
     const tr = document.createElement('tr');
     tr.className = [zone, zeroClass].filter(Boolean).join(' ');
 
-    tr.innerHTML = '';
     const safeName = escapeHTML(t.name);
     const safeInit = escapeHTML(initials);
     tr.innerHTML = `
@@ -752,6 +752,14 @@ function exportJSON() {
 }
 
 /* ═══════════════════════════════════════════════
+   NEW: Refresh override fields from database
+═══════════════════════════════════════════════ */
+function refreshOverrides() {
+  renderOverrides();
+  showToast('TEAM DATA REFRESHED FROM DATABASE');
+}
+
+/* ═══════════════════════════════════════════════
    AUTH HANDLERS
 ═══════════════════════════════════════════════ */
 function signIn() {
@@ -769,7 +777,7 @@ function signOut() {
 }
 
 /* ═══════════════════════════════════════════════
-   ADMIN UI (modified auth state)
+   ADMIN UI
 ═══════════════════════════════════════════════ */
 function openAdmin() {
   document.getElementById('adm-overlay').classList.add('open');
@@ -896,7 +904,10 @@ auth.onAuthStateChanged(user => {
   }
 });
 
-// Real-time listener for the whole database
+// Render default data immediately, then live sync from Firebase
+renderStandings();
+renderResults();
+
 db.ref().on('value', (snap) => {
   const data = snap.val();
   if (data && data.teams) {
@@ -916,7 +927,7 @@ db.ref().on('value', (snap) => {
   }
 });
 
-// On first load, ensure database has a structure if empty
+// Ensure database has initial data if empty
 db.ref().once('value').then(snap => {
   if (!snap.exists()) {
     resetDataToDefaults();

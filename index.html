@@ -257,7 +257,6 @@ footer{text-align:center;padding:20px;color:var(--muted);
       <div class="pill"><b>③</b> Goals Scored</div>
       <div class="pill"><b>④</b> Head-to-Head</div>
       <div class="pill"><b>✦</b> Active players rank above 0-match players</div>
-      <!-- ADDED: manual refresh button for peace of mind -->
       <button class="btn btn-ghost btn-sm" onclick="manualRefresh()" style="margin-left:auto;">↻ Refresh</button>
     </div>
     <div class="tbl-wrap">
@@ -418,7 +417,7 @@ const db = firebase.database();
 const auth = firebase.auth();
 
 /* ═══════════════════════════════════════════════
-   DATA CONSTANTS & EMPTY STATE
+   DATA CONSTANTS
 ═══════════════════════════════════════════════ */
 const DEFAULT_TITLE    = "E-LEAGUE";
 const DEFAULT_MATCHDAY = "Matchday 1";
@@ -451,44 +450,81 @@ function escapeHTML(str) {
 }
 
 /* ═══════════════════════════════════════════════
-   ROBUST DATA SANITIZER
+   ROBUST DATA SANITIZERS (backward‑compatible)
 ═══════════════════════════════════════════════ */
 function sanitizeTeams(raw) {
-  // Convert object to array if needed
-  let arr = Array.isArray(raw) ? raw : Object.values(raw);
-  // Remove null/undefined and objects without a valid name
-  arr = arr.filter(t => t && typeof t.name === 'string');
-  // Remove duplicate names (keep first)
+  if (!raw) return DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+
+  let arr = [];
+  // Case 1: array of strings
+  if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') {
+    arr = raw.map(name => ({ name: name, override: null }));
+  }
+  // Case 2: object with numeric keys
+  else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    arr = Object.values(raw);
+  }
+  // Case 3: array of objects
+  else if (Array.isArray(raw)) {
+    arr = raw;
+  }
+
+  arr = arr
+    .map(t => {
+      if (!t) return null;
+      if (typeof t === 'string') return { name: t, override: null };
+      if (t.name && typeof t.name === 'string') return { name: t.name, override: t.override || null };
+      const altName = t.teamName || t.title || t.id;
+      if (altName && typeof altName === 'string') return { name: altName, override: null };
+      return null;
+    })
+    .filter(Boolean);
+
+  // Remove duplicates
   const seen = new Set();
   arr = arr.filter(t => {
     if (seen.has(t.name)) return false;
     seen.add(t.name);
     return true;
   });
-  // Ensure every team has a proper override field
-  arr = arr.map(t => ({
-    name: t.name,
-    override: t.override && typeof t.override === 'object' ? t.override : null
-  }));
-  return arr.length > 0 ? arr : DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+
+  // If nothing survived, use defaults
+  if (arr.length === 0) {
+    return DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+  }
+  return arr;
 }
 
 function sanitizeMatches(rawMatches, teamNames) {
-  if (!Array.isArray(rawMatches)) return [];
-  return rawMatches.filter(m =>
-    m && typeof m.home === 'string' && typeof m.away === 'string' &&
-    teamNames.has(m.home) && teamNames.has(m.away)
-  );
+  // rawMatches is expected to be a map (object) of id → match, but we also accept arrays.
+  let list = [];
+  if (rawMatches && typeof rawMatches === 'object' && !Array.isArray(rawMatches)) {
+    list = Object.values(rawMatches);
+  } else if (Array.isArray(rawMatches)) {
+    list = rawMatches;
+  }
+
+  return list
+    .map(m => {
+      if (!m || typeof m !== 'object') return null;
+      const home = m.home || m.homeTeam || m.team1;
+      const away = m.away || m.awayTeam || m.team2;
+      const hg = m.hg ?? m.homeGoals ?? m.homeScore ?? 0;
+      const ag = m.ag ?? m.awayGoals ?? m.awayScore ?? 0;
+      const md = m.md || m.matchday || '';
+      const id = m.id || (m._id) || (Date.now().toString() + Math.random());
+      if (!home || !away) return null;
+      return { home, away, hg, ag, md, id };
+    })
+    .filter(m => m !== null && teamNames.has(m.home) && teamNames.has(m.away));
 }
 
 /* ═══════════════════════════════════════════════
-   STATS CALCULATION (unchanged core)
+   STATS CALCULATION
 ═══════════════════════════════════════════════ */
 function calcStats() {
   const raw = {};
-  teams.forEach(t => {
-    raw[t.name] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
-  });
+  teams.forEach(t => { raw[t.name] = {p:0,w:0,d:0,l:0,gf:0,ga:0}; });
   matches.forEach(m => {
     const h = m.home, a = m.away;
     if (!raw[h]) raw[h] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
@@ -533,12 +569,9 @@ function h2hStats(tNames) {
   return h2h;
 }
 
-/* FIXED: sortActive now filters undefined and handles empty arrays */
 function sortActive(active) {
-  // Remove any undefined/null entries
   active = active.filter(t => t !== undefined && t !== null);
   if (active.length < 2) return active;
-
   active.sort((a,b) => {
     if (pts(b) !== pts(a)) return pts(b) - pts(a);
     if (gd(b)  !== gd(a))  return gd(b)  - gd(a);
@@ -564,7 +597,6 @@ function sortActive(active) {
   return active;
 }
 
-/* FIXED: final filter to remove any remaining undefined */
 function sortedTable() {
   const stats = calcStats();
   const active = stats.filter(t => t.p >= 1);
@@ -575,7 +607,7 @@ function sortedTable() {
 }
 
 /* ═══════════════════════════════════════════════
-   RENDER FUNCTIONS (safe text insertion)
+   RENDER FUNCTIONS
 ═══════════════════════════════════════════════ */
 function renderStandings() {
   document.getElementById('hd-title').textContent    = leagueTitle;
@@ -588,7 +620,6 @@ function renderStandings() {
   tbody.innerHTML = '';
 
   sorted.forEach((t, i) => {
-    // Extra guarantee: if t is undefined, skip
     if (!t) return;
     const rank = i + 1;
     const p    = pts(t);
@@ -669,23 +700,20 @@ function renderMatchLog(elId, limit) {
 }
 
 /* ═══════════════════════════════════════════════
-   FIREBASE DATA WRITE HELPERS
+   FIREBASE DATA WRITE HELPERS (new map structure)
 ═══════════════════════════════════════════════ */
-function writeData(data) {
-  return db.ref().set(data);
-}
-
+function writeData(data) { return db.ref().set(data); }
 function resetDataToDefaults() {
   return writeData({
     teams: DEFAULT_TEAMS.map(n => ({ name: n, override: null })),
-    matches: [],
+    matches: {},   // empty map
     leagueTitle: DEFAULT_TITLE,
     matchdayLabel: DEFAULT_MATCHDAY
   });
 }
 
 /* ═══════════════════════════════════════════════
-   ADMIN OPERATIONS (write directly to Firebase)
+   ADMIN OPERATIONS (using match map for atomic writes)
 ═══════════════════════════════════════════════ */
 function addMatch() {
   if (!adminLoggedIn) { showToast('You must be logged in as admin'); return; }
@@ -698,8 +726,11 @@ function addMatch() {
   if (!home || !away) { showToast('SELECT BOTH TEAMS'); return; }
   if (home === away)  { showToast('SAME TEAM SELECTED'); return; }
 
-  const newMatches = [...matches, { home, away, hg, ag, md, id: Date.now().toString() }];
-  db.ref('matches').set(newMatches)
+  const newId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 6);
+  const matchObj = { home, away, hg, ag, md, id: newId };
+
+  // Write only this single match, no overwrites
+  db.ref('matches/' + newId).set(matchObj)
     .then(() => {
       document.getElementById('m-hgoal').value = 0;
       document.getElementById('m-agoal').value = 0;
@@ -713,10 +744,20 @@ function addMatch() {
 function deleteMatch(id) {
   if (!adminLoggedIn) return;
   if (!confirm('Delete this match result?')) return;
-  const newMatches = matches.filter(m => m.id !== id);
-  db.ref('matches').set(newMatches).catch(err => showToast('Error deleting'));
+  db.ref('matches/' + id).remove()
+    .then(() => showToast('MATCH REMOVED'))
+    .catch(err => showToast('Error deleting'));
 }
 
+function clearMatches() {
+  if (!adminLoggedIn) return;
+  if (!confirm('Delete ALL match results? This cannot be undone.')) return;
+  db.ref('matches').set({})   // empty map
+    .then(() => showToast('ALL MATCHES CLEARED'))
+    .catch(err => showToast('Error clearing'));
+}
+
+/* Rest of admin operations unchanged but adapted to local state */
 function saveOverrides() {
   if (!adminLoggedIn) return;
   const rows = document.querySelectorAll('.ov-row');
@@ -767,12 +808,6 @@ function saveSettings() {
     .catch(err => showToast('Error saving settings'));
 }
 
-function clearMatches() {
-  if (!adminLoggedIn) return;
-  if (!confirm('Delete ALL match results? This cannot be undone.')) return;
-  db.ref('matches').set([]).catch(err => showToast('Error clearing'));
-}
-
 function fullReset() {
   if (!adminLoggedIn) return;
   if (!confirm('FULL RESET — removes all matches and overrides. Are you sure?')) return;
@@ -800,16 +835,21 @@ function refreshOverrides() {
   showToast('TEAM DATA REFRESHED FROM DATABASE');
 }
 
-/* ADDED: Manual refresh for public table */
+/* Manual public refresh */
 function manualRefresh() {
   db.ref().once('value', (snap) => {
     const data = snap.val();
-    if (data && data.teams) {
+    if (data) {
       teams = sanitizeTeams(data.teams);
       const teamNamesSet = new Set(teams.map(t => t.name));
-      matches = sanitizeMatches(data.matches || [], teamNamesSet);
+      matches = sanitizeMatches(data.matches || {}, teamNamesSet);
       leagueTitle = data.leagueTitle || DEFAULT_TITLE;
       matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
+
+      // Upgrade teams format if needed
+      if (Array.isArray(data.teams) && data.teams.length > 0 && typeof data.teams[0] === 'string') {
+        db.ref().update({ teams: teams }).catch(() => {});
+      }
     } else {
       teams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
       matches = [];
@@ -833,9 +873,7 @@ function signIn() {
     });
 }
 
-function signOut() {
-  auth.signOut();
-}
+function signOut() { auth.signOut(); }
 
 /* ═══════════════════════════════════════════════
    ADMIN UI
@@ -943,7 +981,7 @@ document.getElementById('adm-overlay').addEventListener('click', e => {
 });
 
 /* ═══════════════════════════════════════════════
-   FIREBASE AUTH STATE LISTENER & DATA SYNC
+   AUTH STATE LISTENER & LIVE DATA SYNC
 ═══════════════════════════════════════════════ */
 auth.onAuthStateChanged(user => {
   adminLoggedIn = !!user;
@@ -966,20 +1004,26 @@ auth.onAuthStateChanged(user => {
   }
 });
 
-// Render default data immediately, then live sync from Firebase
+// Render instantly with defaults
 renderStandings();
 renderResults();
 
-// Robus, crash-proof live listener
+// Real-time listener – now handles match map automatically
 db.ref().on('value', (snap) => {
   const data = snap.val();
   try {
-    if (data && data.teams) {
+    if (data) {
       teams = sanitizeTeams(data.teams);
       const teamNamesSet = new Set(teams.map(t => t.name));
-      matches = sanitizeMatches(data.matches || [], teamNamesSet);
+      // 'matches' in DB is a map (object); sanitizer converts to array
+      matches = sanitizeMatches(data.matches || {}, teamNamesSet);
       leagueTitle = data.leagueTitle || DEFAULT_TITLE;
       matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
+
+      // Auto-upgrade teams format if needed
+      if (Array.isArray(data.teams) && data.teams.length > 0 && typeof data.teams[0] === 'string') {
+        db.ref().update({ teams: teams }).catch(() => {});
+      }
     } else {
       teams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
       matches = [];
@@ -1002,7 +1046,7 @@ db.ref().on('value', (snap) => {
   }
 });
 
-// Ensure database has initial data if empty
+// Initialise database if completely empty
 db.ref().once('value').then(snap => {
   if (!snap.exists()) {
     resetDataToDefaults();

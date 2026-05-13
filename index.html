@@ -908,10 +908,25 @@ auth.onAuthStateChanged(user => {
 renderStandings();
 renderResults();
 
+// Real-time listener – live sync with safety checks
 db.ref().on('value', (snap) => {
   const data = snap.val();
   if (data && data.teams) {
-    teams         = data.teams;
+    // Ensure teams is an array, not an object
+    let rawTeams = data.teams;
+    if (!Array.isArray(rawTeams)) {
+      // If it's an object (e.g., from a manual import), convert to array
+      rawTeams = Object.values(rawTeams);
+    }
+    // Filter out any undefined or malformed entries
+    rawTeams = rawTeams.filter(t => t && typeof t.name === 'string');
+
+    if (rawTeams.length === 0) {
+      // Fallback to defaults if nothing valid remains
+      rawTeams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+    }
+
+    teams         = rawTeams;
     matches       = data.matches || [];
     leagueTitle   = data.leagueTitle || DEFAULT_TITLE;
     matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
@@ -924,6 +939,11 @@ db.ref().on('value', (snap) => {
       renderMatchLog('full-log');
       renderOverrides();
     }
+  } else {
+    // If no teams in DB, use defaults
+    teams = DEFAULT_TEAMS.map(n => ({ name: n, override: null }));
+    renderStandings();
+    renderResults();
   }
 });
 

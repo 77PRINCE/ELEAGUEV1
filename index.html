@@ -235,6 +235,7 @@ footer{text-align:center;padding:20px;color:var(--muted);
   .fixtures-grid{grid-template-columns:1fr;}
 }
 </style>
+<!-- Firebase SDKs -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -396,7 +397,7 @@ footer{text-align:center;padding:20px;color:var(--muted);
 
 <script>
 /* ═══════════════════════════════════════════════
-   FIREBASE CONFIG
+   1. FIREBASE INIT
 ═══════════════════════════════════════════════ */
 const firebaseConfig = {
   apiKey: "AIzaSyDD8NmFUbOyHbuiixq2Mp7xR9iAP-LGZjY",
@@ -408,35 +409,36 @@ const firebaseConfig = {
   appId: "1:1040472856803:web:d8f58c49fd1394ef1b4dd6"
 };
 firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
+const db   = firebase.database();
 const auth = firebase.auth();
 
 /* ═══════════════════════════════════════════════
-   CONSTANTS
+   2. CONSTANTS
 ═══════════════════════════════════════════════ */
-const DEFAULT_TITLE = "E-LEAGUE";
+const DEFAULT_TITLE    = "E-LEAGUE";
 const DEFAULT_MATCHDAY = "Matchday 1";
-const DEFAULT_TEAMS = ["Gamerz Hearts","Simi Fc","Princewill","Youngwill","Demanuel","General Tayoh","Legends","Sportify","Real Player","PS","Uvkage","Killer_Bots","Derulo","Theory","Caleb","Football","King of Hearts","Lil-Stxph","Okazaki","Pope Di","Safari Ousman","TheMaster06","Viking","Von"];
+const DEFAULT_TEAMS    = [
+  "Gamerz Hearts","Simi Fc","Princewill","Youngwill","Demanuel",
+  "General Tayoh","Legends","Sportify","Real Player","PS","Uvkage",
+  "Killer_Bots","Derulo","Theory","Caleb","Football","King of Hearts",
+  "Lil-Stxph","Okazaki","Pope Di","Safari Ousman","TheMaster06","Viking","Von"
+];
 
-// State
-let teams = [];
-let matches = [];
-let fixtures = {};
-let leagueTitle = DEFAULT_TITLE;
+/* ═══════════════════════════════════════════════
+   3. GLOBAL STATE (always up‑to‑date)
+═══════════════════════════════════════════════ */
+let teams         = [];
+let matches       = [];
+let fixtures      = {};          // { MD1: { id: {home,away}, ... }, MD2: ... }
+let leagueTitle   = DEFAULT_TITLE;
 let matchdayLabel = DEFAULT_MATCHDAY;
 let adminLoggedIn = false;
 
 // Temporary generated fixtures (not yet saved)
 let generatedFixtures = [];
 
-// ─────────────────────────────────────────────
-// FIX #2: single flag to prevent resetting DB
-// more than once if it starts empty
-// ─────────────────────────────────────────────
-let dbInitialised = false;
-
 /* ═══════════════════════════════════════════════
-   HELPERS
+   4. UTILITY FUNCTIONS
 ═══════════════════════════════════════════════ */
 function escapeHTML(str) {
   return String(str).replace(/[&<>"]/g, m => {
@@ -448,119 +450,140 @@ function escapeHTML(str) {
   });
 }
 
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
 /* ═══════════════════════════════════════════════
-   SANITIZERS
+   5. DATA SANITIZATION (backward‑compatible)
 ═══════════════════════════════════════════════ */
 function sanitizeTeams(raw) {
-  if (!raw) return DEFAULT_TEAMS.map(n => ({name:n,override:null}));
+  if (!raw) return DEFAULT_TEAMS.map(n => ({name:n, override:null}));
   let arr = [];
-  if (Array.isArray(raw) && raw.length>0 && typeof raw[0]==='string') arr = raw.map(n => ({name:n,override:null}));
-  else if (raw && typeof raw==='object' && !Array.isArray(raw)) arr = Object.values(raw);
-  else if (Array.isArray(raw)) arr = raw;
+  // string array -> object array
+  if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') {
+    arr = raw.map(n => ({name:n, override:null}));
+  }
+  // object (map) -> array of values
+  else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    arr = Object.values(raw);
+  }
+  // array of objects
+  else if (Array.isArray(raw)) {
+    arr = raw;
+  }
+  // normalize each entry
   arr = arr.map(t => {
     if (!t) return null;
-    if (typeof t==='string') return {name:t,override:null};
-    if (t.name && typeof t.name==='string') return {name:t.name,override:t.override||null};
+    if (typeof t === 'string') return {name:t, override:null};
+    if (t.name && typeof t.name === 'string') return {name:t.name, override:t.override || null};
     return null;
   }).filter(Boolean);
+  // remove duplicates by name
   const seen = new Set();
   arr = arr.filter(t => { if (seen.has(t.name)) return false; seen.add(t.name); return true; });
-  return arr.length>0 ? arr : DEFAULT_TEAMS.map(n => ({name:n,override:null}));
+  return arr.length > 0 ? arr : DEFAULT_TEAMS.map(n => ({name:n, override:null}));
 }
 
 function sanitizeMatches(rawMatches, teamNames) {
   let list = [];
-  if (rawMatches && typeof rawMatches==='object' && !Array.isArray(rawMatches)) list = Object.values(rawMatches);
-  else if (Array.isArray(rawMatches)) list = rawMatches;
+  if (rawMatches && typeof rawMatches === 'object' && !Array.isArray(rawMatches)) {
+    list = Object.values(rawMatches);  // map to array
+  } else if (Array.isArray(rawMatches)) {
+    list = rawMatches;
+  }
   return list.map(m => {
-    if (!m || typeof m!=='object') return null;
-    const home = m.home||m.homeTeam||m.team1;
-    const away = m.away||m.awayTeam||m.team2;
-    const hg = m.hg!=null?Number(m.hg):(m.homeGoals!=null?Number(m.homeGoals):0);
-    const ag = m.ag!=null?Number(m.ag):(m.awayGoals!=null?Number(m.awayGoals):0);
-    const md = m.md||m.matchday||'';
-    const id = m.id||m._id||(Date.now().toString()+Math.random());
-    if (!home||!away) return null;
-    return {home,away,hg,ag,md,id};
+    if (!m || typeof m !== 'object') return null;
+    const home = m.home || m.homeTeam || m.team1;
+    const away = m.away || m.awayTeam || m.team2;
+    const hg   = Number(m.hg ?? m.homeGoals ?? m.homeScore ?? 0);
+    const ag   = Number(m.ag ?? m.awayGoals ?? m.awayScore ?? 0);
+    const md   = m.md || m.matchday || '';
+    const id   = m.id || m._id || (Date.now().toString()+Math.random());
+    if (!home || !away) return null;
+    return {home, away, hg, ag, md, id};
   }).filter(m => m && teamNames.has(m.home) && teamNames.has(m.away));
 }
 
 /* ═══════════════════════════════════════════════
-   STATS CALCULATION
+   6. STATISTICS CALCULATION
 ═══════════════════════════════════════════════ */
 function calcStats() {
   const raw = {};
   teams.forEach(t => { raw[t.name] = {p:0,w:0,d:0,l:0,gf:0,ga:0}; });
   matches.forEach(m => {
-    const h=m.home, a=m.away;
-    if (!raw[h]) raw[h]={p:0,w:0,d:0,l:0,gf:0,ga:0};
-    if (!raw[a]) raw[a]={p:0,w:0,d:0,l:0,gf:0,ga:0};
+    const h = m.home, a = m.away;
+    if (!raw[h]) raw[h] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    if (!raw[a]) raw[a] = {p:0,w:0,d:0,l:0,gf:0,ga:0};
     raw[h].p++; raw[a].p++;
-    raw[h].gf+=m.hg; raw[h].ga+=m.ag;
-    raw[a].gf+=m.ag; raw[a].ga+=m.hg;
-    if (m.hg>m.ag) { raw[h].w++; raw[a].l++; }
-    else if (m.hg<m.ag) { raw[a].w++; raw[h].l++; }
+    raw[h].gf += m.hg; raw[h].ga += m.ag;
+    raw[a].gf += m.ag; raw[a].ga += m.hg;
+    if (m.hg > m.ag) { raw[h].w++; raw[a].l++; }
+    else if (m.hg < m.ag) { raw[a].w++; raw[h].l++; }
     else { raw[h].d++; raw[a].d++; }
   });
   return teams.map(t => {
-    const base = raw[t.name]||{p:0,w:0,d:0,l:0,gf:0,ga:0};
-    const ov = t.override;
+    const base = raw[t.name] || {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    const ov   = t.override;
     return {
-      name:t.name,
-      p:  ov&&ov.p  !=null ? ov.p  : base.p,
-      w:  ov&&ov.w  !=null ? ov.w  : base.w,
-      d:  ov&&ov.d  !=null ? ov.d  : base.d,
-      l:  ov&&ov.l  !=null ? ov.l  : base.l,
-      gf: ov&&ov.gf !=null ? ov.gf : base.gf,
-      ga: ov&&ov.ga !=null ? ov.ga : base.ga
+      name: t.name,
+      p:  ov && ov.p  != null ? ov.p  : base.p,
+      w:  ov && ov.w  != null ? ov.w  : base.w,
+      d:  ov && ov.d  != null ? ov.d  : base.d,
+      l:  ov && ov.l  != null ? ov.l  : base.l,
+      gf: ov && ov.gf != null ? ov.gf : base.gf,
+      ga: ov && ov.ga != null ? ov.ga : base.ga
     };
   });
 }
-function pts(t){ return t.w*3+t.d; }
-function gd(t){ return t.gf-t.ga; }
 
+function pts(t) { return t.w * 3 + t.d; }
+function gd(t)  { return t.gf - t.ga; }
+
+/* Head‑to‑head stats for a group of teams (based on all matches) */
 function h2hStats(tNames) {
   const h2h = {};
-  tNames.forEach(n => h2h[n]={pts:0,gd:0,gf:0});
+  tNames.forEach(n => h2h[n] = {pts:0, gd:0, gf:0});
   matches.forEach(m => {
     if (tNames.includes(m.home) && tNames.includes(m.away)) {
-      if (m.hg>m.ag) h2h[m.home].pts+=3;
-      else if (m.hg<m.ag) h2h[m.away].pts+=3;
-      else { h2h[m.home].pts+=1; h2h[m.away].pts+=1; }
-      h2h[m.home].gd+=(m.hg-m.ag); h2h[m.home].gf+=m.hg;
-      h2h[m.away].gd+=(m.ag-m.hg); h2h[m.away].gf+=m.ag;
+      if (m.hg > m.ag) {
+        h2h[m.home].pts += 3;
+      } else if (m.hg < m.ag) {
+        h2h[m.away].pts += 3;
+      } else {
+        h2h[m.home].pts += 1; h2h[m.away].pts += 1;
+      }
+      h2h[m.home].gd += (m.hg - m.ag);
+      h2h[m.home].gf += m.hg;
+      h2h[m.away].gd += (m.ag - m.hg);
+      h2h[m.away].gf += m.ag;
     }
   });
   return h2h;
 }
 
+/* Sort an array of stat objects – returns a NEW sorted array */
 function sortActive(active) {
-  // Work on a clean copy; sort it and RETURN it.
   let arr = active.filter(t => t);
   if (arr.length < 2) return arr;
-
-  arr.sort((a,b) => {
+  arr.sort((a, b) => {
     if (pts(b) !== pts(a)) return pts(b) - pts(a);
     if (gd(b)  !== gd(a))  return gd(b)  - gd(a);
     return b.gf - a.gf;
   });
-
-  // Break remaining ties with head-to-head
+  // Break remaining ties with H2H
   let i = 0;
   while (i < arr.length) {
     let j = i + 1;
-    while (
-      j < arr.length &&
-      pts(arr[j]) === pts(arr[i]) &&
-      gd(arr[j])  === gd(arr[i])  &&
-      arr[j].gf   === arr[i].gf
-    ) j++;
-
+    while (j < arr.length && pts(arr[j]) === pts(arr[i]) && gd(arr[j]) === gd(arr[i]) && arr[j].gf === arr[i].gf) j++;
     if (j - i > 1) {
       const group = arr.slice(i, j);
       const names = group.map(t => t.name);
       const h2h   = h2hStats(names);
-      group.sort((a,b) => {
+      group.sort((a, b) => {
         if (h2h[b].pts !== h2h[a].pts) return h2h[b].pts - h2h[a].pts;
         if (h2h[b].gd  !== h2h[a].gd)  return h2h[b].gd  - h2h[a].gd;
         return h2h[b].gf - h2h[a].gf;
@@ -569,35 +592,31 @@ function sortActive(active) {
     }
     i = j;
   }
-  return arr;  // ← critical: always return the sorted array
+  return arr;
 }
 
-// ─────────────────────────────────────────────
-// FIX #1: capture the return value of sortActive
-// ─────────────────────────────────────────────
+/* Full sorted table: active first, then zero‑match teams alphabetically */
 function sortedTable() {
   const stats  = calcStats();
   const active = stats.filter(t => t.p >= 1);
   const zero   = stats.filter(t => t.p === 0);
-
-  const sortedActive = sortActive(active);   // ← was: sortActive(active) with return ignored
-
-  zero.sort((a,b) => a.name.localeCompare(b.name));
+  const sortedActive = sortActive(active);
+  zero.sort((a, b) => a.name.localeCompare(b.name));
   return [...sortedActive, ...zero].filter(t => t);
 }
 
 /* ═══════════════════════════════════════════════
-   RENDER FUNCTIONS
+   7. RENDERING
 ═══════════════════════════════════════════════ */
 function renderStandings() {
-  document.getElementById('hd-title').textContent   = leagueTitle;
-  document.getElementById('hd-matchday').textContent = matchdayLabel;
+  document.getElementById('hd-title').textContent    = leagueTitle;
+  document.getElementById('hd-matchday').textContent  = matchdayLabel;
   document.getElementById('lbl-matchday').textContent = matchdayLabel;
 
-  const sorted     = sortedTable();
-  const firstZero  = sorted.findIndex(t => t.p === 0);
-  const activeCount = sorted.filter(x => x.p > 0).length;
-  const tbody = document.getElementById('standings-body');
+  const sorted      = sortedTable();
+  const firstZero   = sorted.findIndex(t => t.p === 0);
+  const activeCount = sorted.filter(t => t.p > 0).length;
+  const tbody       = document.getElementById('standings-body');
   tbody.innerHTML = '';
 
   sorted.forEach((t, i) => {
@@ -609,7 +628,6 @@ function renderStandings() {
     const gdCls  = d > 0 ? 'gp' : d < 0 ? 'gn' : 'gz';
     const initials = t.name.substring(0, 2).toUpperCase();
 
-    // Zone coloring: gold top 4, red bottom 4 of active, blue rest
     let zone;
     if (t.p === 0) {
       zone = '';
@@ -635,7 +653,10 @@ function renderStandings() {
     tr.className = [zone, zeroClass].filter(Boolean).join(' ');
     tr.innerHTML = `
       <td class="rk tl ${escapeHTML(rkCls)}">${rank}</td>
-      <td class="tl"><span class="ava">${escapeHTML(initials)}</span><span class="tname">${escapeHTML(t.name)}</span></td>
+      <td class="tl">
+        <span class="ava">${escapeHTML(initials)}</span>
+        <span class="tname">${escapeHTML(t.name)}</span>
+      </td>
       <td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td>
       <td>${t.gf}</td><td>${t.ga}</td>
       <td class="${gdCls}">${gdStr}</td>
@@ -646,7 +667,7 @@ function renderStandings() {
 
 function renderResults() {
   const grid = document.getElementById('results-grid');
-  if (!matches || matches.length === 0) {
+  if (!matches.length) {
     grid.innerHTML = '<div class="empty-state">NO MATCHES PLAYED YET</div>';
     return;
   }
@@ -665,16 +686,15 @@ function renderResults() {
 }
 
 function renderFixtures() {
-  const grid    = document.getElementById('fixtures-grid');
   const mdLabel = document.getElementById('fixtures-md-label');
-  // Derive the key used in DB from the current matchday label
-  const mdKey   = matchdayLabel.replace(/\s+/g, '').replace('Matchday', 'MD');
+  const grid    = document.getElementById('fixtures-grid');
+  const mdKey   = matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
   mdLabel.textContent = matchdayLabel;
-  const currentFixtures = fixtures[mdKey] ? Object.values(fixtures[mdKey]) : [];
-  if (currentFixtures.length === 0) {
+  const current = fixtures[mdKey] ? Object.values(fixtures[mdKey]) : [];
+  if (!current.length) {
     grid.innerHTML = '<div class="empty-state">NO FIXTURES GENERATED YET</div>';
   } else {
-    grid.innerHTML = currentFixtures.map(f => `
+    grid.innerHTML = current.map(f => `
       <div class="fixture-card">
         <div class="f-teams"><span>${escapeHTML(f.home)}</span><span class="vs">VS</span><span>${escapeHTML(f.away)}</span></div>
         <div class="f-md">${escapeHTML(mdKey)}</div>
@@ -685,12 +705,12 @@ function renderFixtures() {
 function renderMatchLog(elId, limit) {
   const el   = document.getElementById(elId);
   const list = limit ? [...matches].slice(-limit).reverse() : [...matches].reverse();
-  if (!list || list.length === 0) {
+  if (!list.length) {
     el.innerHTML = '<div class="empty-state" style="padding:20px;">No matches yet</div>';
     return;
   }
-  el.innerHTML = list.map(m =>
-    `<div class="ml-row">
+  el.innerHTML = list.map(m => `
+    <div class="ml-row">
       <span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span>
       <span class="ml-score">${m.hg}</span>
       <span class="ml-sep">–</span>
@@ -698,18 +718,20 @@ function renderMatchLog(elId, limit) {
       <span class="ml-teams">${escapeHTML(m.away)}</span>
       <span class="ml-md">${escapeHTML(m.md||'')}</span>
       <button class="btn btn-red btn-sm" onclick="deleteMatch('${m.id}')">✕</button>
-    </div>`
-  ).join('');
+    </div>`).join('');
 }
 
 /* ═══════════════════════════════════════════════
-   CACHE
+   8. CACHING (for instant loads)
 ═══════════════════════════════════════════════ */
 function cacheState() {
   try {
-    localStorage.setItem('eleague_cache', JSON.stringify({teams, matches, fixtures, leagueTitle, matchdayLabel}));
+    localStorage.setItem('eleague_cache', JSON.stringify({
+      teams, matches, fixtures, leagueTitle, matchdayLabel
+    }));
   } catch(e) {}
 }
+
 function loadCache() {
   try {
     const raw = localStorage.getItem('eleague_cache');
@@ -727,44 +749,48 @@ function loadCache() {
   } catch(e) {}
   return false;
 }
-function hideLoader() { document.body.classList.add('loaded'); }
+
+function hideLoader() {
+  document.body.classList.add('loaded');
+}
 
 /* ═══════════════════════════════════════════════
-   APPLY DATABASE DATA
+   9. CORE: APPLY DATA FROM DB & RE‑RENDER
 ═══════════════════════════════════════════════ */
 function applyDatabaseData(data) {
   if (data) {
     teams = sanitizeTeams(data.teams);
     let teamNamesSet = new Set(teams.map(t => t.name));
 
-    // Auto-include teams referenced by matches but missing from team list
-    const rawMatches  = data.matches || {};
-    const matchList   = (rawMatches && typeof rawMatches === 'object' && !Array.isArray(rawMatches))
-                        ? Object.values(rawMatches) : (Array.isArray(rawMatches) ? rawMatches : []);
-    const missingTeams = new Set();
+    // ensure all teams referenced in matches exist
+    const rawMatches = data.matches || {};
+    const matchList  = (rawMatches && typeof rawMatches === 'object' && !Array.isArray(rawMatches))
+                       ? Object.values(rawMatches) : (Array.isArray(rawMatches) ? rawMatches : []);
+    const missing = new Set();
     matchList.forEach(m => {
       if (!m || typeof m !== 'object') return;
       const home = m.home || m.homeTeam || m.team1;
       const away = m.away || m.awayTeam || m.team2;
-      if (home && !teamNamesSet.has(home)) missingTeams.add(home);
-      if (away && !teamNamesSet.has(away)) missingTeams.add(away);
+      if (home && !teamNamesSet.has(home)) missing.add(home);
+      if (away && !teamNamesSet.has(away)) missing.add(away);
     });
-    if (missingTeams.size > 0) {
-      teams = [...teams, ...Array.from(missingTeams).map(n => ({name:n, override:null}))];
+    if (missing.size) {
+      teams = [...teams, ...Array.from(missing).map(n => ({name:n, override:null}))];
       teamNamesSet = new Set(teams.map(t => t.name));
       db.ref('teams').set(teams).catch(() => {});
     }
 
     matches       = sanitizeMatches(rawMatches, teamNamesSet);
-    fixtures      = data.fixtures  || {};
+    fixtures      = data.fixtures || {};
     leagueTitle   = data.leagueTitle   || DEFAULT_TITLE;
     matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
 
-    // Migrate old string-array team format
-    if (Array.isArray(data.teams) && data.teams.length > 0 && typeof data.teams[0] === 'string') {
-      db.ref().update({teams}).catch(() => {});
+    // upgrade string‑array teams to object array
+    if (Array.isArray(data.teams) && data.teams.length && typeof data.teams[0] === 'string') {
+      db.ref().update({ teams }).catch(() => {});
     }
   } else {
+    // totally empty DB -> use defaults
     teams         = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
     matches       = [];
     fixtures      = {};
@@ -778,6 +804,7 @@ function applyDatabaseData(data) {
   cacheState();
   hideLoader();
 
+  // refresh admin panel if open
   if (adminLoggedIn && document.getElementById('adm-overlay').classList.contains('open')) {
     populateSelects();
     renderMatchLog('recent-log', 5);
@@ -787,7 +814,7 @@ function applyDatabaseData(data) {
 }
 
 /* ═══════════════════════════════════════════════
-   DATABASE RESET HELPER
+   10. DATABASE RESET HELPER
 ═══════════════════════════════════════════════ */
 function resetDataToDefaults() {
   return db.ref().set({
@@ -800,52 +827,55 @@ function resetDataToDefaults() {
 }
 
 /* ═══════════════════════════════════════════════
-   INITIAL LOAD
-   FIX #2: Use ONLY on('value') — no once().
-   Firebase fires on() immediately with current
-   data, so once() is redundant and causes a
-   race condition that corrupts live updates.
+   11. LIVE SYNC (single listener)
 ═══════════════════════════════════════════════ */
-// Show cached data instantly while Firebase loads
-const hadCache = loadCache();
-if (hadCache) {
-  renderStandings();
-  renderResults();
-  renderFixtures();
-} else {
-  teams = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
-  renderStandings();
-  renderResults();
-  renderFixtures();
+function initRealtimeSync() {
+  db.ref().on('value', snap => {
+    try {
+      if (!snap.exists()) {
+        // First ever load – write defaults once
+        resetDataToDefaults();
+        // resetDataToDefaults will trigger this listener again, so we return
+        return;
+      }
+      applyDatabaseData(snap.val());
+    } catch(e) {
+      console.error('Live sync error', e);
+      teams   = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
+      matches = [];
+      fixtures = {};
+      renderStandings();
+      renderResults();
+      renderFixtures();
+      hideLoader();
+    }
+  });
 }
 
-// Single real-time listener — this fires immediately AND on every change
-db.ref().on('value', snap => {
-  try {
-    if (!snap.exists() && !dbInitialised) {
-      // Database is empty on first ever load — write defaults once
-      dbInitialised = true;
-      resetDataToDefaults();
-      // resetDataToDefaults() writes to DB which will re-trigger this listener
-      // with actual data, so we return here and let that second call handle rendering
-      return;
-    }
-    dbInitialised = true;
-    applyDatabaseData(snap.val());
-  } catch(e) {
-    console.error('Live sync error:', e);
-    teams   = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
-    matches = [];
-    fixtures = {};
+/* ═══════════════════════════════════════════════
+   12. BOOT SEQUENCE (cache → listener)
+═══════════════════════════════════════════════ */
+(function boot() {
+  const hadCache = loadCache();
+  if (hadCache) {
+    // show cached data immediately
     renderStandings();
     renderResults();
     renderFixtures();
-    hideLoader();
+  } else {
+    // show default teams until Firebase responds
+    teams = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
+    renderStandings();
+    renderResults();
+    renderFixtures();
   }
-});
+  // safety: hide loader after 5s if not already hidden
+  setTimeout(() => { if (!document.body.classList.contains('loaded')) hideLoader(); }, 5000);
+  initRealtimeSync();
+})();
 
 /* ═══════════════════════════════════════════════
-   ADMIN OPERATIONS
+   13. ADMIN OPERATIONS (all write to DB)
 ═══════════════════════════════════════════════ */
 function addMatch() {
   if (!adminLoggedIn) { showToast('You must be logged in as admin'); return; }
@@ -854,17 +884,17 @@ function addMatch() {
   const hg   = parseInt(document.getElementById('m-hgoal').value) || 0;
   const ag   = parseInt(document.getElementById('m-agoal').value) || 0;
   const md   = document.getElementById('m-md').value.trim();
-  if (!home || !away)  { showToast('SELECT BOTH TEAMS'); return; }
+  if (!home || !away) { showToast('SELECT BOTH TEAMS'); return; }
   if (home === away)   { showToast('SAME TEAM SELECTED'); return; }
-  const newId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 6);
+  const newId = Date.now().toString() + '_' + Math.random().toString(36).substr(2,6);
   db.ref('matches/' + newId).set({home, away, hg, ag, md, id: newId})
     .then(() => {
       document.getElementById('m-hgoal').value = 0;
       document.getElementById('m-agoal').value = 0;
-      const msg = document.getElementById('match-msg');
-      msg.textContent = `✓ ${home} ${hg}–${ag} ${away} added`;
-      setTimeout(() => msg.textContent = '', 3000);
-    }).catch(() => showToast('Error saving match'));
+      document.getElementById('match-msg').textContent = `✓ ${home} ${hg}–${ag} ${away} added`;
+      setTimeout(() => document.getElementById('match-msg').textContent = '', 3000);
+    })
+    .catch(() => showToast('Error saving match'));
 }
 
 function deleteMatch(id) {
@@ -881,14 +911,15 @@ function clearMatches() {
 
 function saveOverrides() {
   if (!adminLoggedIn) return;
-  const rows     = document.querySelectorAll('.ov-row');
+  const rows = document.querySelectorAll('.ov-row');
   const newTeams = [...teams];
   rows.forEach(row => {
     const i = parseInt(row.dataset.idx);
     if (i >= newTeams.length) return;
     const name = row.querySelector('[data-f=name]').value.trim();
     if (name) newTeams[i].name = name;
-    const ov = {}; let hasOv = false;
+    const ov = {};
+    let hasOv = false;
     ['p','w','d','l','gf','ga'].forEach(f => {
       const v = row.querySelector(`[data-f=${f}]`).value;
       if (v !== '') { ov[f] = parseInt(v) || 0; hasOv = true; } else ov[f] = null;
@@ -912,13 +943,13 @@ function removeTeam(i) {
   if (!adminLoggedIn) return;
   if (!confirm(`Remove "${teams[i].name}"?`)) return;
   const newTeams = [...teams];
-  newTeams.splice(i, 1);
+  newTeams.splice(i,1);
   db.ref('teams').set(newTeams).catch(() => showToast('Error removing team'));
 }
 
 function saveSettings() {
   if (!adminLoggedIn) return;
-  const newTitle = document.getElementById('s-title').value.trim()    || DEFAULT_TITLE;
+  const newTitle = document.getElementById('s-title').value.trim() || DEFAULT_TITLE;
   const newMD    = document.getElementById('s-matchday').value.trim() || DEFAULT_MATCHDAY;
   db.ref().update({leagueTitle: newTitle, matchdayLabel: newMD})
     .then(() => showToast('SETTINGS SAVED ✓'))
@@ -927,38 +958,33 @@ function saveSettings() {
 
 function fullReset() {
   if (!adminLoggedIn) return;
-  if (!confirm('FULL RESET?')) return;
+  if (!confirm('FULL RESET – all data will be lost!')) return;
   resetDataToDefaults().catch(() => showToast('Error resetting'));
 }
 
 function exportJSON() {
   const data = {teams, matches, fixtures, leagueTitle, matchdayLabel};
-  const blob  = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-  const a     = document.createElement('a');
-  a.href      = URL.createObjectURL(blob);
-  a.download  = `eleague_data_${new Date().toISOString().slice(0, 10)}.json`;
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `eleague_data_${new Date().toISOString().slice(0,10)}.json`;
   a.click();
   showToast('EXPORTED ✓');
 }
 
-function refreshOverrides() {
-  renderOverrides();
-  showToast('TEAM DATA REFRESHED ✓');
-}
-
+function refreshOverrides() { renderOverrides(); showToast('TEAM DATA REFRESHED ✓'); }
 function manualRefresh() {
   db.ref().once('value').then(snap => applyDatabaseData(snap.val()));
   showToast('DATA REFRESHED ✓');
 }
 
 /* ═══════════════════════════════════════════════
-   FIXTURE GENERATOR
+   14. FIXTURE GENERATOR
 ═══════════════════════════════════════════════ */
 function generateRandomFixtures() {
-  const mdKey = document.getElementById('fix-md-key').value.trim() || 'MD1';
   let teamNames = teams.map(t => t.name);
   if (teamNames.length < 2) { showToast('Need at least 2 teams'); return; }
-  // Fisher-Yates shuffle
+  // shuffle
   for (let i = teamNames.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [teamNames[i], teamNames[j]] = [teamNames[j], teamNames[i]];
@@ -967,16 +993,14 @@ function generateRandomFixtures() {
   for (let i = 0; i < teamNames.length - 1; i += 2) {
     pairs.push({home: teamNames[i], away: teamNames[i+1]});
   }
-  if (teamNames.length % 2 !== 0) {
-    pairs.push({home: teamNames[teamNames.length-1], away: 'BYE'});
-  }
+  if (teamNames.length % 2 !== 0) pairs.push({home: teamNames[teamNames.length-1], away:'BYE'});
   generatedFixtures = pairs;
   renderGeneratedFixtures();
 }
 
 function renderGeneratedFixtures() {
   const el = document.getElementById('gen-fix-list');
-  if (generatedFixtures.length === 0) {
+  if (!generatedFixtures.length) {
     el.innerHTML = '<div class="empty-state" style="padding:20px;">No fixtures generated</div>';
     return;
   }
@@ -989,8 +1013,8 @@ function renderGeneratedFixtures() {
     </div>`).join('');
 }
 
-function addManualFixtureRow()    { generatedFixtures.push({home:'', away:''}); renderGeneratedFixtures(); }
-function removeGeneratedFixture(idx) { generatedFixtures.splice(idx, 1); renderGeneratedFixtures(); }
+function addManualFixtureRow() { generatedFixtures.push({home:'', away:''}); renderGeneratedFixtures(); }
+function removeGeneratedFixture(idx) { generatedFixtures.splice(idx,1); renderGeneratedFixtures(); }
 function clearGeneratedFixtures() { generatedFixtures = []; renderGeneratedFixtures(); }
 
 function saveFixtures() {
@@ -1003,10 +1027,10 @@ function saveFixtures() {
     const away = row.querySelector('[data-f=away]').value.trim();
     if (home && away) newFix.push({home, away});
   });
-  if (newFix.length === 0) { showToast('No valid fixtures to save'); return; }
+  if (!newFix.length) { showToast('No valid fixtures to save'); return; }
   const fixObj = {};
   newFix.forEach(f => {
-    const id = Date.now().toString() + Math.random().toString(36).substr(2, 6);
+    const id = Date.now().toString() + Math.random().toString(36).substr(2,6);
     fixObj[id] = f;
   });
   db.ref('fixtures/' + mdKey).set(fixObj)
@@ -1015,21 +1039,21 @@ function saveFixtures() {
 }
 
 /* ═══════════════════════════════════════════════
-   AUTH
+   15. AUTHENTICATION
 ═══════════════════════════════════════════════ */
 function signIn() {
-  auth.signInWithEmailAndPassword(
-    document.getElementById('auth-email').value,
-    document.getElementById('auth-password').value
-  ).catch(() => {
-    document.getElementById('auth-err').style.display = 'block';
-    document.getElementById('auth-password').value = '';
-  });
+  const email = document.getElementById('auth-email').value;
+  const pass  = document.getElementById('auth-password').value;
+  auth.signInWithEmailAndPassword(email, pass)
+    .catch(() => {
+      document.getElementById('auth-err').style.display = 'block';
+      document.getElementById('auth-password').value = '';
+    });
 }
 function signOut() { auth.signOut(); }
 
 /* ═══════════════════════════════════════════════
-   ADMIN UI
+   16. ADMIN UI & TABS
 ═══════════════════════════════════════════════ */
 function openAdmin() {
   document.getElementById('adm-overlay').classList.add('open');
@@ -1070,7 +1094,7 @@ function switchTab(tab, btn) {
 }
 
 /* ═══════════════════════════════════════════════
-   TEAM SELECTS & OVERRIDES
+   17. TEAM SELECTS & OVERRIDES RENDER
 ═══════════════════════════════════════════════ */
 function populateSelects() {
   ['m-home','m-away'].forEach(id => {
@@ -1086,12 +1110,12 @@ function renderOverrides() {
   const statsMap = {};
   stats.forEach(t => statsMap[t.name] = t);
   document.getElementById('ov-list').innerHTML = teams.map((t, i) => {
-    const ov = t.override || {};
-    const s  = statsMap[t.name] || {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    const ov  = t.override || {};
+    const s   = statsMap[t.name] || {p:0,w:0,d:0,l:0,gf:0,ga:0};
     const val = f => ov[f] != null ? ov[f] : '';
     const ph  = f => s[f];
     return `<div class="ov-row" data-idx="${i}">
-      <input class="nm" type="text"   value="${escapeHTML(t.name)}" placeholder="Team name" data-f="name">
+      <input class="nm" type="text" value="${escapeHTML(t.name)}" placeholder="Team name" data-f="name">
       <input type="number" value="${val('p')}"  placeholder="${ph('p')}"  min="0" data-f="p">
       <input type="number" value="${val('w')}"  placeholder="${ph('w')}"  min="0" data-f="w">
       <input type="number" value="${val('d')}"  placeholder="${ph('d')}"  min="0" data-f="d">
@@ -1104,7 +1128,7 @@ function renderOverrides() {
 }
 
 /* ═══════════════════════════════════════════════
-   NAVIGATION & TOAST
+   18. PAGE NAVIGATION
 ═══════════════════════════════════════════════ */
 function showPage(page, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1114,19 +1138,8 @@ function showPage(page, btn) {
   if (page === 'fixtures') renderFixtures();
 }
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2500);
-}
-
-document.getElementById('adm-overlay').addEventListener('click', e => {
-  if (e.target === document.getElementById('adm-overlay')) closeAdmin();
-});
-
 /* ═══════════════════════════════════════════════
-   AUTH STATE
+   19. AUTH STATE LISTENER
 ═══════════════════════════════════════════════ */
 auth.onAuthStateChanged(user => {
   adminLoggedIn = !!user;
@@ -1147,6 +1160,11 @@ auth.onAuthStateChanged(user => {
       document.getElementById('adm-footer').style.display  = 'none';
     }
   }
+});
+
+// Overlay background click to close
+document.getElementById('adm-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('adm-overlay')) closeAdmin();
 });
 </script>
 </body>

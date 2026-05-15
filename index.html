@@ -396,7 +396,7 @@ footer{text-align:center;padding:20px;color:var(--muted);
 
 <script>
 /* ═══════════════════════════════════════════════
-   FIREBASE CONFIG (use your own)
+   FIREBASE CONFIG
 ═══════════════════════════════════════════════ */
 const firebaseConfig = {
   apiKey: "AIzaSyDD8NmFUbOyHbuiixq2Mp7xR9iAP-LGZjY",
@@ -421,13 +421,19 @@ const DEFAULT_TEAMS = ["Gamerz Hearts","Simi Fc","Princewill","Youngwill","Deman
 // State
 let teams = [];
 let matches = [];
-let fixtures = {};        // { "MD1": { mid: {home,away}, ... }, "MD2": ... }
+let fixtures = {};
 let leagueTitle = DEFAULT_TITLE;
 let matchdayLabel = DEFAULT_MATCHDAY;
 let adminLoggedIn = false;
 
 // Temporary generated fixtures (not yet saved)
 let generatedFixtures = [];
+
+// ─────────────────────────────────────────────
+// FIX #2: single flag to prevent resetting DB
+// more than once if it starts empty
+// ─────────────────────────────────────────────
+let dbInitialised = false;
 
 /* ═══════════════════════════════════════════════
    HELPERS
@@ -470,8 +476,8 @@ function sanitizeMatches(rawMatches, teamNames) {
     if (!m || typeof m!=='object') return null;
     const home = m.home||m.homeTeam||m.team1;
     const away = m.away||m.awayTeam||m.team2;
-    const hg = m.hg??m.homeGoals??m.homeScore??0;
-    const ag = m.ag??m.awayGoals??m.awayScore??0;
+    const hg = m.hg!=null?Number(m.hg):(m.homeGoals!=null?Number(m.homeGoals):0);
+    const ag = m.ag!=null?Number(m.ag):(m.awayGoals!=null?Number(m.awayGoals):0);
     const md = m.md||m.matchday||'';
     const id = m.id||m._id||(Date.now().toString()+Math.random());
     if (!home||!away) return null;
@@ -499,11 +505,20 @@ function calcStats() {
   return teams.map(t => {
     const base = raw[t.name]||{p:0,w:0,d:0,l:0,gf:0,ga:0};
     const ov = t.override;
-    return { name:t.name, p:ov&&ov.p!=null?ov.p:base.p, w:ov&&ov.w!=null?ov.w:base.w, d:ov&&ov.d!=null?ov.d:base.d, l:ov&&ov.l!=null?ov.l:base.l, gf:ov&&ov.gf!=null?ov.gf:base.gf, ga:ov&&ov.ga!=null?ov.ga:base.ga };
+    return {
+      name:t.name,
+      p:  ov&&ov.p  !=null ? ov.p  : base.p,
+      w:  ov&&ov.w  !=null ? ov.w  : base.w,
+      d:  ov&&ov.d  !=null ? ov.d  : base.d,
+      l:  ov&&ov.l  !=null ? ov.l  : base.l,
+      gf: ov&&ov.gf !=null ? ov.gf : base.gf,
+      ga: ov&&ov.ga !=null ? ov.ga : base.ga
+    };
   });
 }
 function pts(t){ return t.w*3+t.d; }
 function gd(t){ return t.gf-t.ga; }
+
 function h2hStats(tNames) {
   const h2h = {};
   tNames.forEach(n => h2h[n]={pts:0,gd:0,gf:0});
@@ -518,82 +533,142 @@ function h2hStats(tNames) {
   });
   return h2h;
 }
+
 function sortActive(active) {
-  active = active.filter(t => t);
-  if (active.length<2) return active;
-  active.sort((a,b) => pts(b)!==pts(a)?pts(b)-pts(a):gd(b)!==gd(a)?gd(b)-gd(a):b.gf-a.gf);
-  let i=0;
-  while (i<active.length) {
-    let j=i+1;
-    while (j<active.length && pts(active[j])===pts(active[i]) && gd(active[j])===gd(active[i]) && active[j].gf===active[i].gf) j++;
-    if (j-i>1) {
-      const group = active.slice(i,j);
-      const names = group.map(t=>t.name);
-      const h2h = h2hStats(names);
-      group.sort((a,b) => h2h[b].pts!==h2h[a].pts?h2h[b].pts-h2h[a].pts:h2h[b].gd!==h2h[a].gd?h2h[b].gd-h2h[a].gd:h2h[b].gf-h2h[a].gf);
-      active.splice(i, j-i, ...group);
+  // Work on a clean copy; sort it and RETURN it.
+  let arr = active.filter(t => t);
+  if (arr.length < 2) return arr;
+
+  arr.sort((a,b) => {
+    if (pts(b) !== pts(a)) return pts(b) - pts(a);
+    if (gd(b)  !== gd(a))  return gd(b)  - gd(a);
+    return b.gf - a.gf;
+  });
+
+  // Break remaining ties with head-to-head
+  let i = 0;
+  while (i < arr.length) {
+    let j = i + 1;
+    while (
+      j < arr.length &&
+      pts(arr[j]) === pts(arr[i]) &&
+      gd(arr[j])  === gd(arr[i])  &&
+      arr[j].gf   === arr[i].gf
+    ) j++;
+
+    if (j - i > 1) {
+      const group = arr.slice(i, j);
+      const names = group.map(t => t.name);
+      const h2h   = h2hStats(names);
+      group.sort((a,b) => {
+        if (h2h[b].pts !== h2h[a].pts) return h2h[b].pts - h2h[a].pts;
+        if (h2h[b].gd  !== h2h[a].gd)  return h2h[b].gd  - h2h[a].gd;
+        return h2h[b].gf - h2h[a].gf;
+      });
+      arr.splice(i, j - i, ...group);
     }
-    i=j;
+    i = j;
   }
-  return active;
+  return arr;  // ← critical: always return the sorted array
 }
+
+// ─────────────────────────────────────────────
+// FIX #1: capture the return value of sortActive
+// ─────────────────────────────────────────────
 function sortedTable() {
-  const stats = calcStats();
-  const active = stats.filter(t => t.p>=1);
-  const zero = stats.filter(t => t.p===0);
-  sortActive(active);
+  const stats  = calcStats();
+  const active = stats.filter(t => t.p >= 1);
+  const zero   = stats.filter(t => t.p === 0);
+
+  const sortedActive = sortActive(active);   // ← was: sortActive(active) with return ignored
+
   zero.sort((a,b) => a.name.localeCompare(b.name));
-  return [...active,...zero].filter(t => t);
+  return [...sortedActive, ...zero].filter(t => t);
 }
 
 /* ═══════════════════════════════════════════════
    RENDER FUNCTIONS
 ═══════════════════════════════════════════════ */
 function renderStandings() {
-  document.getElementById('hd-title').textContent = leagueTitle;
+  document.getElementById('hd-title').textContent   = leagueTitle;
   document.getElementById('hd-matchday').textContent = matchdayLabel;
   document.getElementById('lbl-matchday').textContent = matchdayLabel;
-  const sorted = sortedTable();
-  const firstZero = sorted.findIndex(t => t.p===0);
+
+  const sorted     = sortedTable();
+  const firstZero  = sorted.findIndex(t => t.p === 0);
+  const activeCount = sorted.filter(x => x.p > 0).length;
   const tbody = document.getElementById('standings-body');
   tbody.innerHTML = '';
-  sorted.forEach((t,i) => {
+
+  sorted.forEach((t, i) => {
     if (!t) return;
-    const rank = i+1;
-    const p = pts(t), d = gd(t);
-    const gdStr = d>0?`+${d}`:`${d}`;
-    const gdCls = d>0?'gp':d<0?'gn':'gz';
-    const initials = t.name.substring(0,2).toUpperCase();
-    let zone = rank<=4?'zone-g':(sorted.filter(x=>x.p>0).length-rank<4?'zone-r':'zone-b');
-    const zeroClass = t.p===0?'zero':'';
-    const rkCls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
-    if (i===firstZero && firstZero>0) {
+    const rank   = i + 1;
+    const p      = pts(t);
+    const d      = gd(t);
+    const gdStr  = d > 0 ? `+${d}` : `${d}`;
+    const gdCls  = d > 0 ? 'gp' : d < 0 ? 'gn' : 'gz';
+    const initials = t.name.substring(0, 2).toUpperCase();
+
+    // Zone coloring: gold top 4, red bottom 4 of active, blue rest
+    let zone;
+    if (t.p === 0) {
+      zone = '';
+    } else if (rank <= 4) {
+      zone = 'zone-g';
+    } else if (activeCount - rank < 4) {
+      zone = 'zone-r';
+    } else {
+      zone = 'zone-b';
+    }
+
+    const zeroClass = t.p === 0 ? 'zero' : '';
+    const rkCls = rank === 1 ? 'r1' : rank === 2 ? 'r2' : rank === 3 ? 'r3' : '';
+
+    if (i === firstZero && firstZero > 0) {
       const dr = document.createElement('tr');
-      dr.className='div-row';
-      dr.innerHTML='<td colspan="10">— AWAITING FIRST MATCH —</td>';
+      dr.className = 'div-row';
+      dr.innerHTML = '<td colspan="10">— AWAITING FIRST MATCH —</td>';
       tbody.appendChild(dr);
     }
+
     const tr = document.createElement('tr');
-    tr.className = [zone,zeroClass].filter(Boolean).join(' ');
-    tr.innerHTML = `<td class="rk tl ${escapeHTML(rkCls)}">${rank}</td><td class="tl"><span class="ava">${escapeHTML(initials)}</span><span class="tname">${escapeHTML(t.name)}</span></td><td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td><td>${t.gf}</td><td>${t.ga}</td><td class="${gdCls}">${gdStr}</td><td class="pts ${rank<=3?'hi':''}">${p}</td>`;
+    tr.className = [zone, zeroClass].filter(Boolean).join(' ');
+    tr.innerHTML = `
+      <td class="rk tl ${escapeHTML(rkCls)}">${rank}</td>
+      <td class="tl"><span class="ava">${escapeHTML(initials)}</span><span class="tname">${escapeHTML(t.name)}</span></td>
+      <td>${t.p}</td><td>${t.w}</td><td>${t.d}</td><td>${t.l}</td>
+      <td>${t.gf}</td><td>${t.ga}</td>
+      <td class="${gdCls}">${gdStr}</td>
+      <td class="pts ${rank <= 3 ? 'hi' : ''}">${p}</td>`;
     tbody.appendChild(tr);
   });
 }
 
 function renderResults() {
   const grid = document.getElementById('results-grid');
-  if (!matches||matches.length===0) { grid.innerHTML='<div class="empty-state">NO MATCHES PLAYED YET</div>'; return; }
+  if (!matches || matches.length === 0) {
+    grid.innerHTML = '<div class="empty-state">NO MATCHES PLAYED YET</div>';
+    return;
+  }
   const rev = [...matches].reverse();
   grid.innerHTML = rev.map(m => {
-    const homeWin=m.hg>m.ag, awayWin=m.ag>m.hg;
-    return `<div class="result-card"><div class="rc-team home" style="${homeWin?'color:var(--gold)':''}">${escapeHTML(m.home)}</div><div class="rc-wrap"><div class="rc-score">${m.hg} – ${m.ag}</div><div class="rc-meta">${escapeHTML(m.md||'')}</div></div><div class="rc-team" style="${awayWin?'color:var(--gold)':''}">${escapeHTML(m.away)}</div></div>`;
+    const homeWin = m.hg > m.ag, awayWin = m.ag > m.hg;
+    return `<div class="result-card">
+      <div class="rc-team home" style="${homeWin?'color:var(--gold)':''}">${escapeHTML(m.home)}</div>
+      <div class="rc-wrap">
+        <div class="rc-score">${m.hg} – ${m.ag}</div>
+        <div class="rc-meta">${escapeHTML(m.md||'')}</div>
+      </div>
+      <div class="rc-team" style="${awayWin?'color:var(--gold)':''}">${escapeHTML(m.away)}</div>
+    </div>`;
   }).join('');
 }
 
 function renderFixtures() {
-  const grid = document.getElementById('fixtures-grid');
+  const grid    = document.getElementById('fixtures-grid');
   const mdLabel = document.getElementById('fixtures-md-label');
-  const mdKey = matchdayLabel.replace(/\s/g,'').replace('Matchday','MD');  // "MD1"
+  // Derive the key used in DB from the current matchday label
+  const mdKey   = matchdayLabel.replace(/\s+/g, '').replace('Matchday', 'MD');
   mdLabel.textContent = matchdayLabel;
   const currentFixtures = fixtures[mdKey] ? Object.values(fixtures[mdKey]) : [];
   if (currentFixtures.length === 0) {
@@ -608,17 +683,32 @@ function renderFixtures() {
 }
 
 function renderMatchLog(elId, limit) {
-  const el = document.getElementById(elId);
-  const list = limit?[...matches].slice(-limit).reverse():[...matches].reverse();
-  if (!list||list.length===0) { el.innerHTML='<div class="empty-state" style="padding:20px;">No matches yet</div>'; return; }
-  el.innerHTML = list.map(m => `<div class="ml-row"><span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span><span class="ml-score">${m.hg}</span><span class="ml-sep">–</span><span class="ml-score">${m.ag}</span><span class="ml-teams">${escapeHTML(m.away)}</span><span class="ml-md">${escapeHTML(m.md||'')}</span><button class="btn btn-red btn-sm" onclick="deleteMatch('${m.id}')">✕</button></div>`).join('');
+  const el   = document.getElementById(elId);
+  const list = limit ? [...matches].slice(-limit).reverse() : [...matches].reverse();
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px;">No matches yet</div>';
+    return;
+  }
+  el.innerHTML = list.map(m =>
+    `<div class="ml-row">
+      <span class="ml-teams" style="text-align:right;">${escapeHTML(m.home)}</span>
+      <span class="ml-score">${m.hg}</span>
+      <span class="ml-sep">–</span>
+      <span class="ml-score">${m.ag}</span>
+      <span class="ml-teams">${escapeHTML(m.away)}</span>
+      <span class="ml-md">${escapeHTML(m.md||'')}</span>
+      <button class="btn btn-red btn-sm" onclick="deleteMatch('${m.id}')">✕</button>
+    </div>`
+  ).join('');
 }
 
 /* ═══════════════════════════════════════════════
-   CACHE & LOADER
+   CACHE
 ═══════════════════════════════════════════════ */
 function cacheState() {
-  try { localStorage.setItem('eleague_cache', JSON.stringify({teams,matches,fixtures,leagueTitle,matchdayLabel})); } catch(e) {}
+  try {
+    localStorage.setItem('eleague_cache', JSON.stringify({teams, matches, fixtures, leagueTitle, matchdayLabel}));
+  } catch(e) {}
 }
 function loadCache() {
   try {
@@ -626,8 +716,11 @@ function loadCache() {
     if (raw) {
       const d = JSON.parse(raw);
       if (d.teams && Array.isArray(d.teams)) {
-        teams = d.teams; matches = d.matches||[]; fixtures = d.fixtures||{};
-        leagueTitle = d.leagueTitle||DEFAULT_TITLE; matchdayLabel = d.matchdayLabel||DEFAULT_MATCHDAY;
+        teams         = d.teams;
+        matches       = d.matches || [];
+        fixtures      = d.fixtures || {};
+        leagueTitle   = d.leagueTitle   || DEFAULT_TITLE;
+        matchdayLabel = d.matchdayLabel || DEFAULT_MATCHDAY;
         return true;
       }
     }
@@ -637,41 +730,46 @@ function loadCache() {
 function hideLoader() { document.body.classList.add('loaded'); }
 
 /* ═══════════════════════════════════════════════
-   APPLY DATABASE DATA (with auto-team inclusion)
+   APPLY DATABASE DATA
 ═══════════════════════════════════════════════ */
 function applyDatabaseData(data) {
   if (data) {
     teams = sanitizeTeams(data.teams);
     let teamNamesSet = new Set(teams.map(t => t.name));
 
-    // Extract matches for auto-inclusion of missing teams
-    let rawMatches = data.matches||{};
-    let matchList = (rawMatches && typeof rawMatches==='object' && !Array.isArray(rawMatches)) ? Object.values(rawMatches) : (Array.isArray(rawMatches)?rawMatches:[]);
+    // Auto-include teams referenced by matches but missing from team list
+    const rawMatches  = data.matches || {};
+    const matchList   = (rawMatches && typeof rawMatches === 'object' && !Array.isArray(rawMatches))
+                        ? Object.values(rawMatches) : (Array.isArray(rawMatches) ? rawMatches : []);
     const missingTeams = new Set();
     matchList.forEach(m => {
-      if (!m || typeof m!=='object') return;
-      const home = m.home||m.homeTeam||m.team1;
-      const away = m.away||m.awayTeam||m.team2;
+      if (!m || typeof m !== 'object') return;
+      const home = m.home || m.homeTeam || m.team1;
+      const away = m.away || m.awayTeam || m.team2;
       if (home && !teamNamesSet.has(home)) missingTeams.add(home);
       if (away && !teamNamesSet.has(away)) missingTeams.add(away);
     });
     if (missingTeams.size > 0) {
-      teams = [...teams, ...Array.from(missingTeams).map(n => ({name:n,override:null}))];
+      teams = [...teams, ...Array.from(missingTeams).map(n => ({name:n, override:null}))];
       teamNamesSet = new Set(teams.map(t => t.name));
-      db.ref('teams').set(teams).catch(()=>{});
+      db.ref('teams').set(teams).catch(() => {});
     }
 
-    matches = sanitizeMatches(rawMatches, teamNamesSet);
-    fixtures = data.fixtures || {};
-    leagueTitle = data.leagueTitle||DEFAULT_TITLE;
-    matchdayLabel = data.matchdayLabel||DEFAULT_MATCHDAY;
+    matches       = sanitizeMatches(rawMatches, teamNamesSet);
+    fixtures      = data.fixtures  || {};
+    leagueTitle   = data.leagueTitle   || DEFAULT_TITLE;
+    matchdayLabel = data.matchdayLabel || DEFAULT_MATCHDAY;
 
-    if (Array.isArray(data.teams) && data.teams.length>0 && typeof data.teams[0]==='string') {
-      db.ref().update({teams:teams}).catch(()=>{});
+    // Migrate old string-array team format
+    if (Array.isArray(data.teams) && data.teams.length > 0 && typeof data.teams[0] === 'string') {
+      db.ref().update({teams}).catch(() => {});
     }
   } else {
-    teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
-    matches = []; fixtures = {};
+    teams         = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
+    matches       = [];
+    fixtures      = {};
+    leagueTitle   = DEFAULT_TITLE;
+    matchdayLabel = DEFAULT_MATCHDAY;
   }
 
   renderStandings();
@@ -682,53 +780,69 @@ function applyDatabaseData(data) {
 
   if (adminLoggedIn && document.getElementById('adm-overlay').classList.contains('open')) {
     populateSelects();
-    renderMatchLog('recent-log',5);
+    renderMatchLog('recent-log', 5);
     renderMatchLog('full-log');
     renderOverrides();
   }
 }
 
 /* ═══════════════════════════════════════════════
-   INITIAL LOAD: cache -> Firebase -> live listener
-═══════════════════════════════════════════════ */
-const hadCache = loadCache();
-if (hadCache) {
-  renderStandings(); renderResults(); renderFixtures();
-} else {
-  teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
-  renderStandings(); renderResults(); renderFixtures();
-}
-
-db.ref().once('value').then(snap => {
-  if (!snap.exists()) {
-    teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
-    resetDataToDefaults();
-  }
-  applyDatabaseData(snap.val());
-}).catch(() => hideLoader());
-
-db.ref().on('value', snap => {
-  try { applyDatabaseData(snap.val()); } catch(e) {
-    console.error('Live sync error:',e);
-    teams = DEFAULT_TEAMS.map(n => ({name:n,override:null}));
-    matches = []; fixtures = {};
-    renderStandings(); renderResults(); renderFixtures();
-    hideLoader();
-  }
-});
-
-/* ═══════════════════════════════════════════════
-   FIREBASE WRITE HELPERS
+   DATABASE RESET HELPER
 ═══════════════════════════════════════════════ */
 function resetDataToDefaults() {
   return db.ref().set({
-    teams: DEFAULT_TEAMS.map(n => ({name:n,override:null})),
-    matches: {},
-    fixtures: {},
-    leagueTitle: DEFAULT_TITLE,
+    teams:        DEFAULT_TEAMS.map(n => ({name:n, override:null})),
+    matches:      {},
+    fixtures:     {},
+    leagueTitle:  DEFAULT_TITLE,
     matchdayLabel: DEFAULT_MATCHDAY
   });
 }
+
+/* ═══════════════════════════════════════════════
+   INITIAL LOAD
+   FIX #2: Use ONLY on('value') — no once().
+   Firebase fires on() immediately with current
+   data, so once() is redundant and causes a
+   race condition that corrupts live updates.
+═══════════════════════════════════════════════ */
+// Show cached data instantly while Firebase loads
+const hadCache = loadCache();
+if (hadCache) {
+  renderStandings();
+  renderResults();
+  renderFixtures();
+} else {
+  teams = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
+  renderStandings();
+  renderResults();
+  renderFixtures();
+}
+
+// Single real-time listener — this fires immediately AND on every change
+db.ref().on('value', snap => {
+  try {
+    if (!snap.exists() && !dbInitialised) {
+      // Database is empty on first ever load — write defaults once
+      dbInitialised = true;
+      resetDataToDefaults();
+      // resetDataToDefaults() writes to DB which will re-trigger this listener
+      // with actual data, so we return here and let that second call handle rendering
+      return;
+    }
+    dbInitialised = true;
+    applyDatabaseData(snap.val());
+  } catch(e) {
+    console.error('Live sync error:', e);
+    teams   = DEFAULT_TEAMS.map(n => ({name:n, override:null}));
+    matches = [];
+    fixtures = {};
+    renderStandings();
+    renderResults();
+    renderFixtures();
+    hideLoader();
+  }
+});
 
 /* ═══════════════════════════════════════════════
    ADMIN OPERATIONS
@@ -737,106 +851,124 @@ function addMatch() {
   if (!adminLoggedIn) { showToast('You must be logged in as admin'); return; }
   const home = document.getElementById('m-home').value;
   const away = document.getElementById('m-away').value;
-  const hg = parseInt(document.getElementById('m-hgoal').value)||0;
-  const ag = parseInt(document.getElementById('m-agoal').value)||0;
-  const md = document.getElementById('m-md').value.trim();
-  if (!home||!away) { showToast('SELECT BOTH TEAMS'); return; }
-  if (home===away) { showToast('SAME TEAM SELECTED'); return; }
-  const newId = Date.now().toString()+'_'+Math.random().toString(36).substr(2,6);
-  db.ref('matches/'+newId).set({home,away,hg,ag,md,id:newId})
+  const hg   = parseInt(document.getElementById('m-hgoal').value) || 0;
+  const ag   = parseInt(document.getElementById('m-agoal').value) || 0;
+  const md   = document.getElementById('m-md').value.trim();
+  if (!home || !away)  { showToast('SELECT BOTH TEAMS'); return; }
+  if (home === away)   { showToast('SAME TEAM SELECTED'); return; }
+  const newId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 6);
+  db.ref('matches/' + newId).set({home, away, hg, ag, md, id: newId})
     .then(() => {
-      document.getElementById('m-hgoal').value=0;
-      document.getElementById('m-agoal').value=0;
-      document.getElementById('match-msg').textContent=`✓ ${home} ${hg}–${ag} ${away} added`;
-      setTimeout(()=>document.getElementById('match-msg').textContent='',3000);
-    }).catch(()=>showToast('Error saving match'));
+      document.getElementById('m-hgoal').value = 0;
+      document.getElementById('m-agoal').value = 0;
+      const msg = document.getElementById('match-msg');
+      msg.textContent = `✓ ${home} ${hg}–${ag} ${away} added`;
+      setTimeout(() => msg.textContent = '', 3000);
+    }).catch(() => showToast('Error saving match'));
 }
+
 function deleteMatch(id) {
   if (!adminLoggedIn) return;
   if (!confirm('Delete this match result?')) return;
-  db.ref('matches/'+id).remove().catch(()=>showToast('Error deleting'));
+  db.ref('matches/' + id).remove().catch(() => showToast('Error deleting'));
 }
+
 function clearMatches() {
   if (!adminLoggedIn) return;
   if (!confirm('Delete ALL match results?')) return;
   db.ref('matches').set({});
 }
+
 function saveOverrides() {
   if (!adminLoggedIn) return;
-  const rows = document.querySelectorAll('.ov-row');
+  const rows     = document.querySelectorAll('.ov-row');
   const newTeams = [...teams];
   rows.forEach(row => {
     const i = parseInt(row.dataset.idx);
-    if (i>=newTeams.length) return;
+    if (i >= newTeams.length) return;
     const name = row.querySelector('[data-f=name]').value.trim();
     if (name) newTeams[i].name = name;
     const ov = {}; let hasOv = false;
     ['p','w','d','l','gf','ga'].forEach(f => {
       const v = row.querySelector(`[data-f=${f}]`).value;
-      if (v!=='') { ov[f]=parseInt(v)||0; hasOv=true; } else ov[f]=null;
+      if (v !== '') { ov[f] = parseInt(v) || 0; hasOv = true; } else ov[f] = null;
     });
-    newTeams[i].override = hasOv?ov:null;
+    newTeams[i].override = hasOv ? ov : null;
   });
-  db.ref('teams').set(newTeams).then(()=>showToast('OVERRIDES SAVED ✓')).catch(()=>showToast('Error saving'));
+  db.ref('teams').set(newTeams)
+    .then(() => showToast('OVERRIDES SAVED ✓'))
+    .catch(() => showToast('Error saving'));
 }
+
 function addTeamPrompt() {
   if (!adminLoggedIn) return;
   const name = prompt('New team name:');
-  if (!name||!name.trim()) return;
-  db.ref('teams').set([...teams,{name:name.trim(),override:null}]).catch(()=>showToast('Error adding team'));
+  if (!name || !name.trim()) return;
+  db.ref('teams').set([...teams, {name:name.trim(), override:null}])
+    .catch(() => showToast('Error adding team'));
 }
+
 function removeTeam(i) {
   if (!adminLoggedIn) return;
   if (!confirm(`Remove "${teams[i].name}"?`)) return;
-  const newTeams = [...teams]; newTeams.splice(i,1);
-  db.ref('teams').set(newTeams).catch(()=>showToast('Error removing team'));
+  const newTeams = [...teams];
+  newTeams.splice(i, 1);
+  db.ref('teams').set(newTeams).catch(() => showToast('Error removing team'));
 }
+
 function saveSettings() {
   if (!adminLoggedIn) return;
-  const newTitle = document.getElementById('s-title').value.trim()||DEFAULT_TITLE;
-  const newMD = document.getElementById('s-matchday').value.trim()||DEFAULT_MATCHDAY;
-  db.ref().update({leagueTitle:newTitle,matchdayLabel:newMD}).then(()=>showToast('SETTINGS SAVED ✓')).catch(()=>showToast('Error saving settings'));
+  const newTitle = document.getElementById('s-title').value.trim()    || DEFAULT_TITLE;
+  const newMD    = document.getElementById('s-matchday').value.trim() || DEFAULT_MATCHDAY;
+  db.ref().update({leagueTitle: newTitle, matchdayLabel: newMD})
+    .then(() => showToast('SETTINGS SAVED ✓'))
+    .catch(() => showToast('Error saving settings'));
 }
+
 function fullReset() {
   if (!adminLoggedIn) return;
   if (!confirm('FULL RESET?')) return;
-  resetDataToDefaults().catch(()=>showToast('Error resetting'));
+  resetDataToDefaults().catch(() => showToast('Error resetting'));
 }
+
 function exportJSON() {
-  const data = {teams,matches,fixtures,leagueTitle,matchdayLabel};
-  const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a = document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`eleague_data_${new Date().toISOString().slice(0,10)}.json`;
-  a.click(); showToast('EXPORTED ✓');
+  const data = {teams, matches, fixtures, leagueTitle, matchdayLabel};
+  const blob  = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a     = document.createElement('a');
+  a.href      = URL.createObjectURL(blob);
+  a.download  = `eleague_data_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  showToast('EXPORTED ✓');
 }
-function refreshOverrides() { renderOverrides(); showToast('TEAM DATA REFRESHED FROM DATABASE'); }
+
+function refreshOverrides() {
+  renderOverrides();
+  showToast('TEAM DATA REFRESHED ✓');
+}
+
 function manualRefresh() {
   db.ref().once('value').then(snap => applyDatabaseData(snap.val()));
   showToast('DATA REFRESHED ✓');
 }
 
 /* ═══════════════════════════════════════════════
-   FIXTURE GENERATOR (admin)
+   FIXTURE GENERATOR
 ═══════════════════════════════════════════════ */
 function generateRandomFixtures() {
   const mdKey = document.getElementById('fix-md-key').value.trim() || 'MD1';
-  // Use current teams list
   let teamNames = teams.map(t => t.name);
   if (teamNames.length < 2) { showToast('Need at least 2 teams'); return; }
-  // Shuffle
+  // Fisher-Yates shuffle
   for (let i = teamNames.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [teamNames[i], teamNames[j]] = [teamNames[j], teamNames[i]];
   }
-  // Pair up
   const pairs = [];
   for (let i = 0; i < teamNames.length - 1; i += 2) {
-    pairs.push({ home: teamNames[i], away: teamNames[i+1] });
+    pairs.push({home: teamNames[i], away: teamNames[i+1]});
   }
-  // odd one out gets a BYE (optional)
   if (teamNames.length % 2 !== 0) {
-    pairs.push({ home: teamNames[teamNames.length-1], away: 'BYE' });
+    pairs.push({home: teamNames[teamNames.length-1], away: 'BYE'});
   }
   generatedFixtures = pairs;
   renderGeneratedFixtures();
@@ -844,46 +976,37 @@ function generateRandomFixtures() {
 
 function renderGeneratedFixtures() {
   const el = document.getElementById('gen-fix-list');
-  if (generatedFixtures.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;">No fixtures generated</div>'; return; }
+  if (generatedFixtures.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px;">No fixtures generated</div>';
+    return;
+  }
   el.innerHTML = generatedFixtures.map((f, i) => `
-    <div class="ov-row" style="grid-template-columns:1fr 1fr auto;">
+    <div class="ov-row" style="grid-template-columns:1fr auto 1fr auto;">
       <input class="nm" type="text" value="${escapeHTML(f.home)}" data-f="home" data-idx="${i}">
-      <span style="text-align:center;color:var(--gold);font-weight:700;">VS</span>
+      <span style="text-align:center;color:var(--gold);font-weight:700;padding:0 8px;">VS</span>
       <input class="nm" type="text" value="${escapeHTML(f.away)}" data-f="away" data-idx="${i}">
       <button class="btn btn-red btn-sm" onclick="removeGeneratedFixture(${i})">✕</button>
     </div>`).join('');
 }
 
-function addManualFixtureRow() {
-  generatedFixtures.push({ home: '', away: '' });
-  renderGeneratedFixtures();
-}
-function removeGeneratedFixture(idx) {
-  generatedFixtures.splice(idx, 1);
-  renderGeneratedFixtures();
-}
-function clearGeneratedFixtures() {
-  generatedFixtures = [];
-  renderGeneratedFixtures();
-}
+function addManualFixtureRow()    { generatedFixtures.push({home:'', away:''}); renderGeneratedFixtures(); }
+function removeGeneratedFixture(idx) { generatedFixtures.splice(idx, 1); renderGeneratedFixtures(); }
+function clearGeneratedFixtures() { generatedFixtures = []; renderGeneratedFixtures(); }
 
 function saveFixtures() {
   if (!adminLoggedIn) { showToast('Admin login required'); return; }
   const mdKey = document.getElementById('fix-md-key').value.trim() || 'MD1';
-  // Collect from input fields (in case edited)
-  const rows = document.querySelectorAll('#gen-fix-list .ov-row');
+  const rows  = document.querySelectorAll('#gen-fix-list .ov-row');
   const newFix = [];
   rows.forEach(row => {
     const home = row.querySelector('[data-f=home]').value.trim();
     const away = row.querySelector('[data-f=away]').value.trim();
-    if (home && away) newFix.push({ home, away });
+    if (home && away) newFix.push({home, away});
   });
-  if (newFix.length === 0) { showToast('No valid fixtures'); return; }
-
-  // Convert to object with IDs
+  if (newFix.length === 0) { showToast('No valid fixtures to save'); return; }
   const fixObj = {};
   newFix.forEach(f => {
-    const id = Date.now().toString()+Math.random().toString(36).substr(2,6);
+    const id = Date.now().toString() + Math.random().toString(36).substr(2, 6);
     fixObj[id] = f;
   });
   db.ref('fixtures/' + mdKey).set(fixObj)
@@ -899,8 +1022,8 @@ function signIn() {
     document.getElementById('auth-email').value,
     document.getElementById('auth-password').value
   ).catch(() => {
-    document.getElementById('auth-err').style.display='block';
-    document.getElementById('auth-password').value='';
+    document.getElementById('auth-err').style.display = 'block';
+    document.getElementById('auth-password').value = '';
   });
 }
 function signOut() { auth.signOut(); }
@@ -911,32 +1034,37 @@ function signOut() { auth.signOut(); }
 function openAdmin() {
   document.getElementById('adm-overlay').classList.add('open');
   if (!adminLoggedIn) {
-    document.getElementById('auth-gate').style.display='';
-    document.getElementById('adm-content').style.display='none';
-    document.getElementById('adm-footer').style.display='none';
-    document.getElementById('auth-err').style.display='none';
-    document.getElementById('btn-logout').style.display='none';
+    document.getElementById('auth-gate').style.display   = '';
+    document.getElementById('adm-content').style.display = 'none';
+    document.getElementById('adm-footer').style.display  = 'none';
+    document.getElementById('auth-err').style.display    = 'none';
+    document.getElementById('btn-logout').style.display  = 'none';
   } else {
-    document.getElementById('auth-gate').style.display='none';
-    document.getElementById('adm-content').style.display='';
-    document.getElementById('adm-footer').style.display='';
+    document.getElementById('auth-gate').style.display   = 'none';
+    document.getElementById('adm-content').style.display = '';
+    document.getElementById('adm-footer').style.display  = '';
     loadAdminPanel();
   }
 }
 function closeAdmin() { document.getElementById('adm-overlay').classList.remove('open'); }
+
 function loadAdminPanel() {
-  document.getElementById('s-title').value=leagueTitle;
-  document.getElementById('s-matchday').value=matchdayLabel;
-  document.getElementById('m-md').value=matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
-  document.getElementById('fix-md-key').value=matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
+  document.getElementById('s-title').value    = leagueTitle;
+  document.getElementById('s-matchday').value = matchdayLabel;
+  document.getElementById('m-md').value       = matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
+  document.getElementById('fix-md-key').value = matchdayLabel.replace(/\s+/g,'').replace('Matchday','MD');
   populateSelects();
-  renderMatchLog('recent-log',5);
+  renderMatchLog('recent-log', 5);
   renderMatchLog('full-log');
   renderOverrides();
-  generatedFixtures = []; renderGeneratedFixtures();
+  generatedFixtures = [];
+  renderGeneratedFixtures();
 }
+
 function switchTab(tab, btn) {
-  ['matches','log','teams','fixturegen','settings'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'':'none');
+  ['matches','log','teams','fixturegen','settings'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t === tab ? '' : 'none';
+  });
   document.querySelectorAll('.adm-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
@@ -950,18 +1078,28 @@ function populateSelects() {
     if (!sel) return;
     sel.innerHTML = teams.map(t => `<option value="${escapeHTML(t.name)}">${escapeHTML(t.name)}</option>`).join('');
   });
-  if (teams.length>1) document.getElementById('m-away').value=teams[1].name;
+  if (teams.length > 1) document.getElementById('m-away').value = teams[1].name;
 }
+
 function renderOverrides() {
-  const stats = calcStats();
+  const stats    = calcStats();
   const statsMap = {};
-  stats.forEach(t => statsMap[t.name]=t);
-  document.getElementById('ov-list').innerHTML = teams.map((t,i) => {
-    const ov = t.override||{};
-    const s = statsMap[t.name]||{p:0,w:0,d:0,l:0,gf:0,ga:0};
-    const val = f => ov[f]!=null?ov[f]:'';
-    const ph = f => s[f];
-    return `<div class="ov-row" data-idx="${i}"><input class="nm" type="text" value="${escapeHTML(t.name)}" placeholder="Team name" data-f="name"><input type="number" value="${val('p')}" placeholder="${ph('p')}" min="0" data-f="p"><input type="number" value="${val('w')}" placeholder="${ph('w')}" min="0" data-f="w"><input type="number" value="${val('d')}" placeholder="${ph('d')}" min="0" data-f="d"><input type="number" value="${val('l')}" placeholder="${ph('l')}" min="0" data-f="l"><input type="number" value="${val('gf')}" placeholder="${ph('gf')}" min="0" data-f="gf"><input type="number" value="${val('ga')}" placeholder="${ph('ga')}" min="0" data-f="ga"><button class="btn btn-red btn-sm" onclick="removeTeam(${i})">✕</button></div>`;
+  stats.forEach(t => statsMap[t.name] = t);
+  document.getElementById('ov-list').innerHTML = teams.map((t, i) => {
+    const ov = t.override || {};
+    const s  = statsMap[t.name] || {p:0,w:0,d:0,l:0,gf:0,ga:0};
+    const val = f => ov[f] != null ? ov[f] : '';
+    const ph  = f => s[f];
+    return `<div class="ov-row" data-idx="${i}">
+      <input class="nm" type="text"   value="${escapeHTML(t.name)}" placeholder="Team name" data-f="name">
+      <input type="number" value="${val('p')}"  placeholder="${ph('p')}"  min="0" data-f="p">
+      <input type="number" value="${val('w')}"  placeholder="${ph('w')}"  min="0" data-f="w">
+      <input type="number" value="${val('d')}"  placeholder="${ph('d')}"  min="0" data-f="d">
+      <input type="number" value="${val('l')}"  placeholder="${ph('l')}"  min="0" data-f="l">
+      <input type="number" value="${val('gf')}" placeholder="${ph('gf')}" min="0" data-f="gf">
+      <input type="number" value="${val('ga')}" placeholder="${ph('ga')}" min="0" data-f="ga">
+      <button class="btn btn-red btn-sm" onclick="removeTeam(${i})">✕</button>
+    </div>`;
   }).join('');
 }
 
@@ -975,35 +1113,38 @@ function showPage(page, btn) {
   btn.classList.add('active');
   if (page === 'fixtures') renderFixtures();
 }
+
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent=msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),2500);
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
 }
+
 document.getElementById('adm-overlay').addEventListener('click', e => {
-  if (e.target===document.getElementById('adm-overlay')) closeAdmin();
+  if (e.target === document.getElementById('adm-overlay')) closeAdmin();
 });
 
 /* ═══════════════════════════════════════════════
-   AUTH STATE LISTENER
+   AUTH STATE
 ═══════════════════════════════════════════════ */
 auth.onAuthStateChanged(user => {
   adminLoggedIn = !!user;
   const logoutBtn = document.getElementById('btn-logout');
   if (user) {
-    logoutBtn.style.display='inline-block';
+    logoutBtn.style.display = 'inline-block';
     if (document.getElementById('adm-overlay').classList.contains('open')) {
-      document.getElementById('auth-gate').style.display='none';
-      document.getElementById('adm-content').style.display='';
-      document.getElementById('adm-footer').style.display='';
+      document.getElementById('auth-gate').style.display   = 'none';
+      document.getElementById('adm-content').style.display = '';
+      document.getElementById('adm-footer').style.display  = '';
       loadAdminPanel();
     }
   } else {
-    logoutBtn.style.display='none';
+    logoutBtn.style.display = 'none';
     if (document.getElementById('adm-overlay').classList.contains('open')) {
-      document.getElementById('auth-gate').style.display='';
-      document.getElementById('adm-content').style.display='none';
-      document.getElementById('adm-footer').style.display='none';
+      document.getElementById('auth-gate').style.display   = '';
+      document.getElementById('adm-content').style.display = 'none';
+      document.getElementById('adm-footer').style.display  = 'none';
     }
   }
 });
